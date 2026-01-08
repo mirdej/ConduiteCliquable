@@ -269,7 +269,26 @@
       if (cueId && cueId === pendingId) item.classList.add('is-active');
       if (cueId && cueId === lastTriggeredCueId) item.classList.add('is-triggered');
       item.setAttribute('data-cue-id', cueId);
-      item.textContent = name;
+
+      const indicator = [
+        (cue.dataset.light || '').trim() ? 'L' : '',
+        (cue.dataset.video || '').trim() ? 'V' : '',
+        (cue.dataset.audio || '').trim() ? 'A' : '',
+        (cue.dataset.tracker || '').trim() ? 'T' : '',
+        (cue.dataset.comment || '').trim() ? 'C' : ''
+      ].join('');
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'editor-toc-item-name';
+      nameEl.textContent = name;
+
+      const indEl = document.createElement('span');
+      indEl.className = 'editor-toc-item-ind';
+      indEl.textContent = indicator;
+      indEl.style.display = indicator ? 'inline' : 'none';
+
+      item.appendChild(nameEl);
+      item.appendChild(indEl);
       tocListEl.appendChild(item);
     }
   }
@@ -789,6 +808,7 @@
           light: payload.light,
           video: payload.video,
           audio: payload.audio,
+          tracker: payload.tracker,
           comment: payload.comment
         }),
         keepalive: true

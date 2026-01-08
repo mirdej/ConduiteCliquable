@@ -122,12 +122,14 @@ app.post('/osc/go', (req, res) => {
     const light = String(req.body?.light ?? '');
     const video = String(req.body?.video ?? '');
     const audio = String(req.body?.audio ?? '');
+    const tracker = String(req.body?.tracker ?? '');
     const comment = String(req.body?.comment ?? '');
 
     // Send OSC messages: address + string arg
     oscUdpPort.send({ address: '/go/light/', args: [light] }, OSC_HOST, OSC_PORT);
     oscUdpPort.send({ address: '/go/video/', args: [video] }, OSC_HOST, OSC_PORT);
     oscUdpPort.send({ address: '/go/audio/', args: [audio] }, OSC_HOST, OSC_PORT);
+    oscUdpPort.send({ address: '/go/tracker/', args: [tracker] }, OSC_HOST, OSC_PORT);
     oscUdpPort.send({ address: '/go/comment/', args: [comment] }, OSC_HOST, OSC_PORT);
 
     res.json({ ok: true });

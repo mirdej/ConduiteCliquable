@@ -150,12 +150,32 @@
   background: rgba(255,255,255,0.08);
   color: #fff;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 .editor-toc-item:hover {
   background: rgba(255,255,255,0.14);
 }
 .editor-toc-item.is-active {
   outline: 2px solid rgba(33, 150, 243, 0.9);
+}
+
+.editor-toc-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-toc-item-ind {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(33, 150, 243, 0.85);
+  text-align: right;
 }
 
 .editor-toc-item.is-triggered {

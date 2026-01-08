@@ -143,7 +143,8 @@
 
     if (action === 'mode') {
       playMode = !playMode;
-      if (playMode) editMode = false;
+      // Entering play mode disables editing; leaving play mode restores editing.
+      editMode = !playMode;
       const b = modeBtnEl();
       if (b) b.textContent = `Mode: ${playMode ? 'Play' : 'Edit'}`;
       const eb = toggleBtnEl();
@@ -458,7 +459,11 @@
       return;
     }
     draggingCueEl = cue;
-    e.dataTransfer.effectAllowed = 'move';
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      // Some browsers require data to be set for drag events to work.
+      e.dataTransfer.setData('text/plain', cue.dataset.cueId || cue.dataset.name || 'cue');
+    }
   });
 
   document.addEventListener('dragover', (e) => {

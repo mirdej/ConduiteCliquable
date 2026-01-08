@@ -312,20 +312,23 @@
 
   // Keyboard shortcut: Space triggers GO (optional).
   document.addEventListener('keydown', (e) => {
-    if (!spacebarGoShortcutEnabled) return;
-    if (!playMode) return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-    if (e.repeat) return;
     if (isTypingContext()) return;
 
     const isSpace = e.code === 'Space' || e.key === ' ';
     if (!isSpace) return;
 
+    e.preventDefault();
+
+    // Only trigger if shortcut is enabled, in play mode, and not repeating.
+    if (!spacebarGoShortcutEnabled) return;
+    if (!playMode) return;
+    if (e.repeat) return;
+
     // Only handle if GO is currently enabled.
     const go = goBtnEl();
     if (go?.disabled) return;
 
-    e.preventDefault();
     triggerPendingCueAndAdvance();
   });
 

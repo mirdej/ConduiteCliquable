@@ -72,6 +72,7 @@
     <label>Light <input class="playbar-light" type="text" /></label>
     <label>Video <input class="playbar-video" type="text" /></label>
     <label>Audio <input class="playbar-audio" type="text" /></label>
+    <label>Tracker <input class="playbar-tracker" type="text" /></label>
     <label>Comment <input class="playbar-comment" type="text" /></label>
     <span class="playbar-actions">
       <button data-action="cue-prev">Prev</button>
@@ -95,6 +96,7 @@
   const pendingLightEl = () => playbar.querySelector('.playbar-light');
   const pendingVideoEl = () => playbar.querySelector('.playbar-video');
   const pendingAudioEl = () => playbar.querySelector('.playbar-audio');
+  const pendingTrackerEl = () => playbar.querySelector('.playbar-tracker');
   const pendingCommentEl = () => playbar.querySelector('.playbar-comment');
   const goBtnEl = () => playbar.querySelector('button[data-action="cue-go"]');
 
@@ -448,6 +450,7 @@
     pendingCueEl.dataset.light = pendingLightEl()?.value ?? '';
     pendingCueEl.dataset.video = pendingVideoEl()?.value ?? '';
     pendingCueEl.dataset.audio = pendingAudioEl()?.value ?? '';
+    pendingCueEl.dataset.tracker = pendingTrackerEl()?.value ?? '';
     pendingCueEl.dataset.comment = pendingCommentEl()?.value ?? '';
     updateCommentBubble();
   });
@@ -665,6 +668,7 @@
     el.dataset.light = '';
     el.dataset.video = '';
     el.dataset.audio = '';
+    el.dataset.tracker = '';
     el.dataset.comment = '';
     el.textContent = el.dataset.name;
     el.setAttribute('draggable', 'false');
@@ -734,6 +738,7 @@
       if (pendingLightEl()) pendingLightEl().value = '';
       if (pendingVideoEl()) pendingVideoEl().value = '';
       if (pendingAudioEl()) pendingAudioEl().value = '';
+      if (pendingTrackerEl()) pendingTrackerEl().value = '';
       if (pendingCommentEl()) pendingCommentEl().value = '';
       return;
     }
@@ -742,6 +747,7 @@
     if (pendingLightEl()) pendingLightEl().value = pendingCueEl.dataset.light || '';
     if (pendingVideoEl()) pendingVideoEl().value = pendingCueEl.dataset.video || '';
     if (pendingAudioEl()) pendingAudioEl().value = pendingCueEl.dataset.audio || '';
+    if (pendingTrackerEl()) pendingTrackerEl().value = pendingCueEl.dataset.tracker || '';
     if (pendingCommentEl()) pendingCommentEl().value = pendingCueEl.dataset.comment || '';
 
     const shouldScroll = opts.scroll !== false;
@@ -767,6 +773,7 @@
       light: pendingCueEl.dataset.light || '',
       video: pendingCueEl.dataset.video || '',
       audio: pendingCueEl.dataset.audio || '',
+      tracker: pendingCueEl.dataset.tracker || '',
       comment: pendingCueEl.dataset.comment || ''
     };
     // Placeholder until OSC/MIDI is implemented

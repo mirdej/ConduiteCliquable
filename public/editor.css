@@ -257,6 +257,12 @@
   outline: 2px solid rgba(255, 255, 255, 0.9);
 }
 
+/* WYSIWYG element selection (non-cue) */
+.editor-dom-selected {
+  outline: 2px dashed rgba(33, 150, 243, 0.9);
+  outline-offset: 2px;
+}
+
 .editor-controls .cue-label--template {
   font-size: 14px;
   line-height: 1.2;

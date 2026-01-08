@@ -163,6 +163,11 @@ app.post('/saveHtml', async (req, res) => {
     document.documentElement.classList.remove('editor-edit-mode');
     document.querySelectorAll('.cue-label--selected').forEach((n) => n.classList.remove('cue-label--selected'));
 
+    // Remove WYSIWYG/editor-only attributes & classes.
+    document.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
+    document.querySelectorAll('[spellcheck]').forEach((n) => n.removeAttribute('spellcheck'));
+    document.querySelectorAll('.editor-dom-selected').forEach((n) => n.classList.remove('editor-dom-selected'));
+
     const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
     await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');
     res.json({ ok: true });

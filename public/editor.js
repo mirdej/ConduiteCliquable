@@ -24,6 +24,7 @@
   let pendingCueEl = null;
   let draggingCueEl = null;
   let selectedCueEl = null;
+  let selectedDomEl = null;
   let lastScriptRange = null;
   let lastPointer = null;
   let dropPlaceholderEl = null;
@@ -430,12 +431,33 @@
     if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
     if (e.key === 'Escape') {
       clearSelectedCue();
+      clearSelectedDomEl();
       return;
     }
-    if (!selectedCueEl) return;
     if (e.key !== 'Backspace' && e.key !== 'Delete') return;
     e.preventDefault();
-    deleteCue(selectedCueEl);
+
+    if (selectedCueEl) {
+      deleteCue(selectedCueEl);
+      return;
+    }
+    if (selectedDomEl) {
+      deleteDomEl(selectedDomEl);
+      clearSelectedDomEl();
+    }
+  });
+
+  // Keyboard shortcut: Cmd/Ctrl+Enter edits selected element outerHTML.
+  document.addEventListener('keydown', (e) => {
+    if (!(editMode && !playMode)) return;
+    if (isTypingContext()) return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.shiftKey || e.altKey) return;
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const el = selectedDomEl || selectedCueEl;
+    if (!el) return;
+    editElementOuterHtml(el);
   });
 
   // Track last meaningful selection/click inside the script content.
@@ -544,10 +566,93 @@
     document.documentElement.classList.toggle('editor-theme-dark', isDark);
   }
 
+  function isWysiwygActive() {
+    return Boolean(editMode && !playMode);
+  }
+
+  function isInEditorUi(node) {
+    return Boolean(node?.closest?.('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator'));
+  }
+
+  function applyWysiwygEditableState() {
+    const enabled = Boolean(editMode && !playMode);
+
+    // Turn the page into a WYSIWYG editor in Edit mode.
+    if (enabled) document.body.setAttribute('contenteditable', 'true');
+    else document.body.removeAttribute('contenteditable');
+
+    // Always protect injected UI from edits.
+    document.querySelectorAll('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => {
+      try { n.setAttribute('contenteditable', 'false'); } catch {}
+    });
+
+    // Keep cue labels controlled (rename via our prompt so dataset stays in sync).
+    document.querySelectorAll('.cue-label').forEach((n) => {
+      try { n.setAttribute('contenteditable', 'false'); } catch {}
+    });
+
+    if (!enabled) clearSelectedDomEl();
+  }
+
+  function setSelectedDomEl(el) {
+    if (selectedDomEl === el) return;
+    if (selectedDomEl) selectedDomEl.classList.remove('editor-dom-selected');
+    selectedDomEl = el;
+    if (selectedDomEl) selectedDomEl.classList.add('editor-dom-selected');
+  }
+
+  function clearSelectedDomEl() {
+    if (!selectedDomEl) return;
+    selectedDomEl.classList.remove('editor-dom-selected');
+    selectedDomEl = null;
+  }
+
+  function deleteDomEl(el) {
+    if (!el) return;
+    if (isInEditorUi(el)) return;
+    const tag = String(el.tagName || '').toUpperCase();
+    if (!tag || tag === 'HTML' || tag === 'HEAD' || tag === 'BODY') return;
+    try {
+      el.remove();
+      setStatus('Deleted');
+    } catch {
+      // ignore
+    }
+  }
+
+  function editElementOuterHtml(el) {
+    if (!el) return;
+    if (isInEditorUi(el)) return;
+    const tag = String(el.tagName || '').toUpperCase();
+    if (!tag || tag === 'HTML' || tag === 'HEAD' || tag === 'BODY') return;
+
+    const rect = el.getBoundingClientRect();
+    const oldHtml = el.outerHTML;
+    const overlay = createOverlay(rect, oldHtml);
+    overlay.onCommit = (newValue) => {
+      const html = String(newValue || '').trim();
+      if (!html) return;
+      const t = document.createElement('template');
+      t.innerHTML = html;
+      const nodes = Array.from(t.content.childNodes);
+      if (!nodes.length) return;
+      const firstEl = nodes.find((n) => n.nodeType === 1) || null;
+      el.replaceWith(...nodes);
+      if (firstEl) setSelectedDomEl(firstEl);
+      updateCueInteractivity();
+      refreshCueToc();
+      const q = searchInputEl()?.value?.trim();
+      if (q) performSearch(q);
+      setStatus('HTML updated');
+    };
+  }
+
   function applyEditModeVisual() {
     document.documentElement.classList.toggle('editor-edit-mode', Boolean(editMode && !playMode));
     const tmpl = templateCueEl();
     if (tmpl) tmpl.style.display = (editMode && !playMode) ? 'inline-block' : 'none';
+
+    applyWysiwygEditableState();
   }
 
   function applyGoEnabledState() {
@@ -577,7 +682,10 @@
     playMode = Boolean(nextPlayMode);
     editMode = !playMode;
     // Don't keep an edit-selection when leaving edit mode.
-    if (!(editMode && !playMode)) clearSelectedCue();
+    if (!(editMode && !playMode)) {
+      clearSelectedCue();
+      clearSelectedDomEl();
+    }
     syncModeUi();
     applyMode({ preserveScroll: true });
     updateCueInteractivity();
@@ -627,6 +735,9 @@
       refreshCueToc();
       return;
     }
+
+    // In WYSIWYG mode, text is edited directly via contenteditable.
+    if (isWysiwygActive()) return;
 
     if (e.target?.closest?.('.editor-controls, .editor-playbar')) return;
     const target = e.target;
@@ -711,6 +822,11 @@
     htmlEl.classList.remove('editor-theme-dark');
     htmlEl.classList.remove('editor-edit-mode');
     htmlEl.querySelectorAll('.cue-label--selected').forEach((n) => n.classList.remove('cue-label--selected'));
+
+    // Remove WYSIWYG/editor-only attributes & classes.
+    htmlEl.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable'));
+    htmlEl.querySelectorAll('[spellcheck]').forEach((n) => n.removeAttribute('spellcheck'));
+    htmlEl.querySelectorAll('.editor-dom-selected').forEach((n) => n.classList.remove('editor-dom-selected'));
 
     return '<!DOCTYPE html>\n' + htmlEl.outerHTML;
   }
@@ -918,11 +1034,29 @@
       if (cue) {
         e.preventDefault();
         setSelectedCue(cue);
+        clearSelectedDomEl();
         // Also load cue into playbar fields for editing.
         setPendingCue(cue);
         setStatus('Cue selected (Del to delete)');
       } else {
         clearSelectedCue();
+
+        const target = e.target?.nodeType === 1 ? e.target : e.target?.parentElement;
+        const el = target?.closest?.('*');
+        if (!el || isInEditorUi(el)) {
+          clearSelectedDomEl();
+          return;
+        }
+        const tag = String(el.tagName || '').toUpperCase();
+        if (!tag || tag === 'HTML' || tag === 'HEAD' || tag === 'BODY') {
+          clearSelectedDomEl();
+          return;
+        }
+        if (el.classList.contains('cue-label')) {
+          clearSelectedDomEl();
+          return;
+        }
+        setSelectedDomEl(el);
       }
     }
   }, true);

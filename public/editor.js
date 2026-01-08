@@ -3,7 +3,8 @@
     saveUrl: '/save',
     saveHtmlUrl: '/saveHtml',
     backupUrl: '/backup',
-    oscGoUrl: '/osc/go'
+    oscGoUrl: '/osc/go',
+    eventsUrl: '/events'
   };
 
   // Default to Play mode on load.
@@ -148,6 +149,30 @@
     });
 
     updateSearchUi();
+
+    // Remote control (OSC -> server -> SSE)
+    try {
+      const es = new EventSource(cfg.eventsUrl || '/events');
+      es.addEventListener('message', (ev) => {
+        let data;
+        try { data = JSON.parse(ev.data); } catch { return; }
+        const cmd = String(data?.cmd || '');
+        if (cmd === 'go') {
+          // Match the GO button behavior: ignore if GO is disabled.
+          const go = goBtnEl();
+          if (go?.disabled) return;
+          triggerPendingCueAndAdvance();
+        }
+        if (cmd === 'prev') {
+          gotoCueByDelta(-1);
+        }
+        if (cmd === 'next') {
+          gotoCueByDelta(1);
+        }
+      });
+    } catch {
+      // ignore
+    }
   });
 
   function applySpacebarGoShortcutUi() {
@@ -336,15 +361,39 @@
 
   // Keyboard shortcut: Space triggers GO (optional).
   document.addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     if (isTypingContext()) return;
 
     const isSpace = e.code === 'Space' || e.key === ' ';
     if (!isSpace) return;
 
-    e.preventDefault();
+    // Don't steal browser/system shortcuts.
+    if (e.metaKey || e.ctrlKey) return;
 
-    // Only trigger if shortcut is enabled, in play mode, and not repeating.
+    // Extra navigation shortcuts (only when Space GO is enabled)
+    if (spacebarGoShortcutEnabled && playMode) {
+      if (e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        if (e.repeat) return;
+        gotoCueByDelta(-1);
+        return;
+      }
+      if (e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        if (e.repeat) return;
+        gotoCueByDelta(1);
+        return;
+      }
+    }
+
+    // Plain Space: always prevent page scroll (even when Space GO is disabled).
+    if (!e.shiftKey && !e.altKey) {
+      e.preventDefault();
+    } else {
+      // With modifiers, only block defaults if we handled it above.
+      return;
+    }
+
+    // Only trigger GO if shortcut is enabled, in play mode, and not repeating.
     if (!spacebarGoShortcutEnabled) return;
     if (!playMode) return;
     if (e.repeat) return;

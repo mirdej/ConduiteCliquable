@@ -15,6 +15,10 @@ const BACKUP_DIR = path.join(__dirname, 'backups');
 
 const OSC_HOST = process.env.OSC_HOST || '10.0.1.7';
 const OSC_PORT = Number(process.env.OSC_PORT || 9000);
+const OSC_IN_PORT = Number(process.env.OSC_IN_PORT || 9009);
+
+/** @type {Set<import('express').Response>} */
+const sseClients = new Set();
 
 let oscReady = false;
 const oscUdpPort = new osc.UDPPort({
@@ -31,6 +35,41 @@ oscUdpPort.on('error', (err) => {
 });
 oscUdpPort.open();
 
+function broadcastEditorCommand(cmd) {
+  const payload = JSON.stringify({ cmd, ts: Date.now() });
+  for (const res of sseClients) {
+    try {
+      res.write(`data: ${payload}\n\n`);
+    } catch {
+      try { res.end(); } catch {}
+      sseClients.delete(res);
+    }
+  }
+}
+
+// OSC inbound listener (e.g. /go /prev /next)
+let oscInReady = false;
+const oscInPort = new osc.UDPPort({
+  localAddress: '0.0.0.0',
+  localPort: OSC_IN_PORT
+});
+oscInPort.on('ready', () => {
+  oscInReady = true;
+  console.log(`[OSC IN] Listening on 0.0.0.0:${OSC_IN_PORT}`);
+});
+oscInPort.on('error', (err) => {
+  oscInReady = false;
+  console.warn('[OSC IN] Error:', err?.message || err);
+});
+oscInPort.on('message', (msg) => {
+  const address = String(msg?.address || '');
+  const a = address.replace(/\/+$/, '');
+  if (a === '/go') broadcastEditorCommand('go');
+  else if (a === '/prev') broadcastEditorCommand('prev');
+  else if (a === '/next') broadcastEditorCommand('next');
+});
+oscInPort.open();
+
 app.use(express.json({ limit: '2mb' }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
@@ -45,6 +84,22 @@ app.get('/edit', async (req, res) => {
   } catch (err) {
     res.status(500).send(`<pre>Error reading file: ${err.message}</pre>`);
   }
+});
+
+// Server-Sent Events stream for remote control commands
+app.get('/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
+
+  // Initial ping
+  res.write(`data: ${JSON.stringify({ cmd: 'hello', oscInReady, ts: Date.now() })}\n\n`);
+  sseClients.add(res);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
 });
 
 app.post('/backup', async (req, res) => {
@@ -143,7 +198,7 @@ app.listen(PORT, () => {
 });
 
 function injectEditor(html) {
-  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
+  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go', eventsUrl: '/events' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${toolbar}\n</body>`);
   }

@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { JSDOM } from 'jsdom';
+import osc from 'osc';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const TARGET_FILE = path.join(__dirname, 'playScript.html');
 const BACKUP_DIR = path.join(__dirname, 'backups');
+
+const OSC_HOST = process.env.OSC_HOST || '10.0.1.7';
+const OSC_PORT = Number(process.env.OSC_PORT || 9000);
+
+let oscReady = false;
+const oscUdpPort = new osc.UDPPort({
+  localAddress: '0.0.0.0',
+  localPort: 0
+});
+oscUdpPort.on('ready', () => {
+  oscReady = true;
+  console.log(`[OSC] Ready (target ${OSC_HOST}:${OSC_PORT})`);
+});
+oscUdpPort.on('error', (err) => {
+  oscReady = false;
+  console.warn('[OSC] Error:', err?.message || err);
+});
+oscUdpPort.open();
 
 app.use(express.json({ limit: '2mb' }));
 app.use('/static', express.static(path.join(__dirname, 'public')));
@@ -96,12 +115,33 @@ app.post('/saveHtml', async (req, res) => {
   }
 });
 
+app.post('/osc/go', (req, res) => {
+  try {
+    if (!oscReady) return res.status(503).json({ ok: false, error: 'OSC not ready' });
+
+    const light = String(req.body?.light ?? '');
+    const video = String(req.body?.video ?? '');
+    const audio = String(req.body?.audio ?? '');
+    const comment = String(req.body?.comment ?? '');
+
+    // Send OSC messages: address + string arg
+    oscUdpPort.send({ address: '/go/light/', args: [light] }, OSC_HOST, OSC_PORT);
+    oscUdpPort.send({ address: '/go/video/', args: [video] }, OSC_HOST, OSC_PORT);
+    oscUdpPort.send({ address: '/go/audio/', args: [audio] }, OSC_HOST, OSC_PORT);
+    oscUdpPort.send({ address: '/go/comment/', args: [comment] }, OSC_HOST, OSC_PORT);
+
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Editor server running at http://localhost:${PORT}/edit`);
 });
 
 function injectEditor(html) {
-  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
+  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${toolbar}\n</body>`);
   }

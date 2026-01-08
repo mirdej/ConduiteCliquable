@@ -2,7 +2,8 @@
   const cfg = window.__EDITOR__ || {
     saveUrl: '/save',
     saveHtmlUrl: '/saveHtml',
-    backupUrl: '/backup'
+    backupUrl: '/backup',
+    oscGoUrl: '/osc/go'
   };
 
   // Default to Play mode on load.
@@ -769,6 +770,23 @@
     // Placeholder until OSC/MIDI is implemented
     console.log('[CUE GO]', payload);
     setStatus(`GO ${payload.name}`);
+
+    // Fire-and-forget OSC bridge call.
+    try {
+      fetch(cfg.oscGoUrl || '/osc/go', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          light: payload.light,
+          video: payload.video,
+          audio: payload.audio,
+          comment: payload.comment
+        }),
+        keepalive: true
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
 
     const cues = getCueLabels();
     const idx = cues.indexOf(pendingCueEl);

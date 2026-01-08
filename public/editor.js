@@ -960,6 +960,18 @@
         draggingCueEl.textContent = finalName;
         draggingCueEl.dataset.fromTemplate = '';
         setStatus('Cue added');
+        // Newly created cue should become the pending cue.
+        setPendingCue(draggingCueEl, { scroll: false });
+
+        // After dropping + naming a cue, focus the Light textbox for immediate entry.
+        const light = pendingLightEl();
+        if (light) {
+          // Defer to ensure the DOM/state updates are fully applied.
+          requestAnimationFrame(() => {
+            try { light.focus(); } catch {}
+            try { light.select(); } catch {}
+          });
+        }
       }
       refreshCueToc();
     } else {

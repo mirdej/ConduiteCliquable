@@ -77,7 +77,7 @@ app.post('/saveHtml', async (req, res) => {
     const { document } = dom.window;
 
     // Remove editor artifacts before writing back.
-    document.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar').forEach((n) => n.remove());
+    document.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
     document.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
     // Remove the injected inline config script (best-effort)
     document.querySelectorAll('script').forEach((s) => {

@@ -19,6 +19,10 @@
   let draggingCueEl = null;
   let lastScriptRange = null;
   let lastPointer = null;
+  let dropPlaceholderEl = null;
+  let dropIndicatorEl = null;
+  let lastDropKey = null;
+  let draggingCueSize = null;
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -296,7 +300,7 @@
     const htmlEl = document.documentElement.cloneNode(true);
 
     // Remove injected editor artifacts
-    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer').forEach((n) => n.remove());
+    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script').forEach((s) => {
       const t = (s.textContent || '').trim();
@@ -458,7 +462,10 @@
       e.preventDefault();
       return;
     }
+    clearDropPreview();
     draggingCueEl = cue;
+    const r = cue.getBoundingClientRect();
+    draggingCueSize = { w: Math.max(20, r.width), h: Math.max(14, r.height) };
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       // Some browsers require data to be set for drag events to work.
@@ -471,6 +478,11 @@
     if (e.target?.closest?.('.editor-controls, .editor-playbar')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+
+    const range = caretRangeFromPoint(e.clientX, e.clientY);
+    if (!range) return;
+    normalizeRangeForCueDrop(range);
+    showDropPreviewAtRange(range);
   });
 
   document.addEventListener('drop', (e) => {
@@ -481,6 +493,9 @@
     const range = caretRangeFromPoint(e.clientX, e.clientY);
     if (!range) return;
 
+    normalizeRangeForCueDrop(range);
+    clearDropPreview();
+
     range.collapse(true);
     range.insertNode(draggingCueEl);
     draggingCueEl.after(document.createTextNode(' '));
@@ -490,7 +505,100 @@
 
   document.addEventListener('dragend', () => {
     draggingCueEl = null;
+    draggingCueSize = null;
+    clearDropPreview();
   });
+
+  function normalizeRangeForCueDrop(range) {
+    const n = range.startContainer;
+    const el = n?.nodeType === 1 ? n : n?.parentElement;
+    const inCue = el?.closest?.('.cue-label');
+    if (inCue) {
+      try {
+        range.setStartAfter(inCue);
+        range.setEndAfter(inCue);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function rangeKey(range) {
+    try {
+      const node = range.startContainer;
+      const path = computeNodePath(node);
+      return `${path.join('/')}:${range.startOffset}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function ensureDropIndicator() {
+    if (dropIndicatorEl) return dropIndicatorEl;
+    const el = document.createElement('div');
+    el.className = 'editor-drop-indicator';
+    document.body.appendChild(el);
+    dropIndicatorEl = el;
+    return el;
+  }
+
+  function ensureDropPlaceholder() {
+    if (dropPlaceholderEl) return dropPlaceholderEl;
+    const el = document.createElement('span');
+    el.className = 'cue-drop-placeholder';
+    dropPlaceholderEl = el;
+    return el;
+  }
+
+  function showDropPreviewAtRange(range) {
+    const key = rangeKey(range);
+    const indicator = ensureDropIndicator();
+
+    // Position indicator at caret
+    const rect = range.getClientRects?.()[0] || range.getBoundingClientRect?.();
+    if (rect) {
+      indicator.style.left = `${rect.left + window.scrollX}px`;
+      indicator.style.top = `${rect.top + window.scrollY}px`;
+      indicator.style.height = `${Math.max(18, rect.height || 0)}px`;
+      indicator.style.display = 'block';
+    }
+
+    // Only move placeholder when the insertion point actually changes.
+    if (key && key === lastDropKey) return;
+    lastDropKey = key;
+
+    const placeholder = ensureDropPlaceholder();
+    placeholder.classList.remove('is-visible');
+    placeholder.style.width = `${Math.round(draggingCueSize?.w || 60)}px`;
+    placeholder.style.height = `${Math.round(draggingCueSize?.h || 24)}px`;
+
+    try {
+      placeholder.remove();
+    } catch {}
+
+    try {
+      const r = range.cloneRange();
+      r.collapse(true);
+      r.insertNode(placeholder);
+      requestAnimationFrame(() => {
+        placeholder.classList.add('is-visible');
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  function clearDropPreview() {
+    lastDropKey = null;
+    if (dropPlaceholderEl) {
+      try { dropPlaceholderEl.remove(); } catch {}
+      dropPlaceholderEl = null;
+    }
+    if (dropIndicatorEl) {
+      try { dropIndicatorEl.remove(); } catch {}
+      dropIndicatorEl = null;
+    }
+  }
 
   function caretRangeFromPoint(x, y) {
     if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);

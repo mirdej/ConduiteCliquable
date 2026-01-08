@@ -82,6 +82,7 @@
   const pendingVideoEl = () => playbar.querySelector('.playbar-video');
   const pendingAudioEl = () => playbar.querySelector('.playbar-audio');
   const pendingCommentEl = () => playbar.querySelector('.playbar-comment');
+  const goBtnEl = () => playbar.querySelector('button[data-action="cue-go"]');
 
   window.addEventListener('DOMContentLoaded', () => {
     // Mount play UI first (top), then spacer, then controls at end of body.
@@ -266,12 +267,21 @@
     if (tmpl) tmpl.style.display = (editMode && !playMode) ? 'inline-block' : 'none';
   }
 
+  function applyGoEnabledState() {
+    const go = goBtnEl();
+    if (!go) return;
+    const disabled = Boolean(editMode && !playMode);
+    go.disabled = disabled;
+    go.setAttribute('aria-disabled', String(disabled));
+  }
+
   function syncModeUi() {
     const b = modeBtnEl();
     if (b) b.textContent = `Mode: ${playMode ? 'Play' : 'Edit'}`;
     const eb = toggleBtnEl();
     if (eb) eb.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
     applyEditModeVisual();
+    applyGoEnabledState();
   }
 
   function setMode(nextPlayMode) {
@@ -285,18 +295,19 @@
   }
 
   function applyMode() {
-    playbar.classList.toggle('is-visible', playMode);
-    playbarSpacer.classList.toggle('is-visible', playMode);
+    // Keep playbar visible in both modes so cue fields are always editable.
+    playbar.classList.add('is-visible');
+    playbarSpacer.classList.add('is-visible');
     applyEditModeVisual();
-    if (playMode) {
-      // If nothing selected, default to first cue
-      if (!pendingCueEl) {
-        const cues = getCueLabels();
-        if (cues.length) setPendingCue(cues[0]);
-        else setPendingCue(null);
-      } else {
-        setPendingCue(pendingCueEl);
-      }
+    applyGoEnabledState();
+
+    // If nothing selected, default to first cue (in either mode).
+    if (!pendingCueEl) {
+      const cues = getCueLabels();
+      if (cues.length) setPendingCue(cues[0]);
+      else setPendingCue(null);
+    } else {
+      setPendingCue(pendingCueEl);
     }
   }
 
@@ -530,6 +541,8 @@
       if (cue) {
         e.preventDefault();
         setSelectedCue(cue);
+        // Also load cue into playbar fields for editing.
+        setPendingCue(cue);
         setStatus('Cue selected (Del to delete)');
       } else {
         clearSelectedCue();

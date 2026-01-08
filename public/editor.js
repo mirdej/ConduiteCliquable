@@ -33,6 +33,7 @@
   let tocPanelEl = null;
   let tocListEl = null;
   let tocVisible = false;
+  let lastTriggeredCueId = '';
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -264,6 +265,7 @@
       item.type = 'button';
       item.className = 'editor-toc-item';
       if (cueId && cueId === pendingId) item.classList.add('is-active');
+      if (cueId && cueId === lastTriggeredCueId) item.classList.add('is-triggered');
       item.setAttribute('data-cue-id', cueId);
       item.textContent = name;
       tocListEl.appendChild(item);
@@ -787,6 +789,9 @@
     } catch {
       // ignore
     }
+
+    lastTriggeredCueId = pendingCueEl?.dataset?.cueId || '';
+    refreshCueToc();
 
     const cues = getCueLabels();
     const idx = cues.indexOf(pendingCueEl);

@@ -158,6 +158,11 @@
   outline: 2px solid rgba(33, 150, 243, 0.9);
 }
 
+.editor-toc-item.is-triggered {
+  /* subtle dark-yellow overlay */
+  background: rgba(198, 178, 118, 0.28);
+}
+
 /* Overlay */
 .editor-overlay {
   position: fixed;

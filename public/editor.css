@@ -141,6 +141,14 @@
   background: hsla(308, 90%, 54%, 0.8);
 }
 
+.editor-controls .cue-label--template {
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 4px 8px;
+  margin: 0;
+  cursor: grab;
+}
+
 /* Drag/drop preview */
 .cue-drop-placeholder {
   display: inline-block;
@@ -279,4 +287,13 @@
   background-color: #1a1a1a;
   color: #e6e6e6;
   border: 1px solid #333;
+}
+
+/* Visual feedback: slightly lighter background in Edit mode */
+:root.editor-edit-mode body {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+:root.editor-theme-dark.editor-edit-mode,
+:root.editor-theme-dark.editor-edit-mode body {
+  background-color: rgba(255, 255, 255, 0.04) !important;
 }

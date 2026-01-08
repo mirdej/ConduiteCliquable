@@ -85,6 +85,7 @@ app.post('/saveHtml', async (req, res) => {
       if (t.includes('window.__EDITOR__')) s.remove();
     });
     document.documentElement.classList.remove('editor-theme-dark');
+    document.documentElement.classList.remove('editor-edit-mode');
 
     const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
     await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');

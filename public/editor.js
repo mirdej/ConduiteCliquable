@@ -5,8 +5,9 @@
     backupUrl: '/backup'
   };
 
-  let editMode = true;
-  let playMode = false;
+  // Default to Play mode on load.
+  let editMode = false;
+  let playMode = true;
   let isDark = true;
 
   // Search state
@@ -36,7 +37,7 @@
       <span class="editor-search-count"></span>
       <button data-action="clear-search" title="Clear search">✕</button>
       <span class="editor-controls-sep"></span>
-      <button data-action="add-cue">Add Cue</button>
+      <span class="cue-label cue-label--template" data-template="1" draggable="true" title="Drag into the script to create a new cue">New cue. Drag me!</span>
       <span class="editor-status" aria-live="polite"></span>
     </div>
     <div class="editor-controls-right">
@@ -106,7 +107,25 @@
 
     // Ensure any existing cue labels behave properly
     updateCueInteractivity();
+    // Sync UI labels + visuals to initial mode.
+    syncModeUi();
     applyMode();
+  });
+
+  function templateCueEl() {
+    return controls.querySelector('.cue-label--template');
+  }
+
+  // Keyboard shortcut: Cmd/Ctrl+E toggles Play/Edit mode.
+  document.addEventListener('keydown', (e) => {
+    const key = (e.key || '').toLowerCase();
+    if (key !== 'e') return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.shiftKey || e.altKey) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    e.preventDefault();
+    setMode(!playMode);
   });
 
   // Track last meaningful selection/click inside the script content.
@@ -141,20 +160,13 @@
       const b = toggleBtnEl();
       if (b) b.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
       setStatus(editMode ? 'Editing enabled' : 'Editing disabled');
+      applyEditModeVisual();
       updateCueInteractivity();
       return;
     }
 
     if (action === 'mode') {
-      playMode = !playMode;
-      // Entering play mode disables editing; leaving play mode restores editing.
-      editMode = !playMode;
-      const b = modeBtnEl();
-      if (b) b.textContent = `Mode: ${playMode ? 'Play' : 'Edit'}`;
-      const eb = toggleBtnEl();
-      if (eb) eb.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
-      applyMode();
-      updateCueInteractivity();
+      setMode(!playMode);
       return;
     }
 
@@ -167,14 +179,7 @@
       return;
     }
 
-    if (action === 'add-cue') {
-      if (!editMode || playMode) {
-        setStatus('Switch to Edit mode');
-        return;
-      }
-      addCueAtSelection();
-      return;
-    }
+    // (Add Cue button removed; use the draggable template badge.)
 
     if (action === 'find') {
       performSearch(searchInputEl()?.value?.trim());
@@ -239,9 +244,32 @@
     document.documentElement.classList.toggle('editor-theme-dark', isDark);
   }
 
+  function applyEditModeVisual() {
+    document.documentElement.classList.toggle('editor-edit-mode', Boolean(editMode && !playMode));
+    const tmpl = templateCueEl();
+    if (tmpl) tmpl.style.display = (editMode && !playMode) ? 'inline-block' : 'none';
+  }
+
+  function syncModeUi() {
+    const b = modeBtnEl();
+    if (b) b.textContent = `Mode: ${playMode ? 'Play' : 'Edit'}`;
+    const eb = toggleBtnEl();
+    if (eb) eb.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
+    applyEditModeVisual();
+  }
+
+  function setMode(nextPlayMode) {
+    playMode = Boolean(nextPlayMode);
+    editMode = !playMode;
+    syncModeUi();
+    applyMode();
+    updateCueInteractivity();
+  }
+
   function applyMode() {
     playbar.classList.toggle('is-visible', playMode);
     playbarSpacer.classList.toggle('is-visible', playMode);
+    applyEditModeVisual();
     if (playMode) {
       // If nothing selected, default to first cue
       if (!pendingCueEl) {
@@ -307,13 +335,14 @@
       if (t.includes('window.__EDITOR__')) s.remove();
     });
     htmlEl.classList.remove('editor-theme-dark');
+    htmlEl.classList.remove('editor-edit-mode');
 
     return '<!DOCTYPE html>\n' + htmlEl.outerHTML;
   }
 
   // Cue labels
   function getCueLabels() {
-    return Array.from(document.querySelectorAll('.cue-label'));
+    return Array.from(document.querySelectorAll('.cue-label:not(.cue-label--template)'));
   }
 
   function nextCueName() {
@@ -448,6 +477,7 @@
   document.addEventListener('click', (e) => {
     const cue = e.target?.closest?.('.cue-label');
     if (!cue) return;
+    if (cue.classList.contains('cue-label--template')) return;
     if (playMode) {
       e.preventDefault();
       setPendingCue(cue);
@@ -463,7 +493,9 @@
       return;
     }
     clearDropPreview();
-    draggingCueEl = cue;
+    const isTemplate = cue.classList.contains('cue-label--template') || cue.dataset.template === '1';
+    draggingCueEl = isTemplate ? createCueLabel('') : cue;
+    draggingCueEl.dataset.fromTemplate = isTemplate ? '1' : '';
     const r = cue.getBoundingClientRect();
     draggingCueSize = { w: Math.max(20, r.width), h: Math.max(14, r.height) };
     if (e.dataTransfer) {
@@ -500,7 +532,23 @@
     range.insertNode(draggingCueEl);
     draggingCueEl.after(document.createTextNode(' '));
     updateCueInteractivity();
-    setStatus('Cue moved');
+
+    if (draggingCueEl.dataset.fromTemplate === '1') {
+      const suggested = nextCueName();
+      const name = window.prompt('Cue name:', suggested);
+      if (name === null) {
+        try { draggingCueEl.remove(); } catch {}
+        setStatus('Cancelled');
+      } else {
+        const finalName = String(name).trim() || suggested;
+        draggingCueEl.dataset.name = finalName;
+        draggingCueEl.textContent = finalName;
+        draggingCueEl.dataset.fromTemplate = '';
+        setStatus('Cue added');
+      }
+    } else {
+      setStatus('Cue moved');
+    }
   });
 
   document.addEventListener('dragend', () => {

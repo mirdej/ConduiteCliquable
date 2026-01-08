@@ -84,7 +84,8 @@
   color: #fff;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   border-left: 1px solid rgba(255,255,255,0.12);
-  transform: translateX(100%);
+  --toc-handle: 28px;
+  transform: translateX(calc(100% - var(--toc-handle)));
   transition: transform 180ms ease;
   display: flex;
   flex-direction: column;
@@ -92,13 +93,32 @@
 .editor-toc.is-visible {
   transform: translateX(0);
 }
+
+.editor-toc-toggle {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: var(--toc-handle);
+  height: 44px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  cursor: pointer;
+}
+.editor-toc-toggle:hover {
+  background: rgba(255,255,255,0.14);
+}
 .editor-toc-header {
   padding: 10px 12px;
+  padding-left: calc(12px + var(--toc-handle));
   font-weight: 700;
   border-bottom: 1px solid rgba(255,255,255,0.12);
 }
 .editor-toc-list {
   padding: 8px;
+  padding-left: calc(8px + var(--toc-handle));
   overflow: auto;
   display: flex;
   flex-direction: column;

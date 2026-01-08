@@ -28,6 +28,7 @@
   let commentBubbleEl = null;
   let tocPanelEl = null;
   let tocListEl = null;
+  let tocVisible = false;
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -119,7 +120,7 @@
 
     // Slide in TOC after first paint.
     requestAnimationFrame(() => {
-      if (tocPanelEl) tocPanelEl.classList.add('is-visible');
+      setTocVisible(true);
     });
   });
 
@@ -179,12 +180,19 @@
     const panel = document.createElement('aside');
     panel.className = 'editor-toc';
     panel.innerHTML = `
+      <button class="editor-toc-toggle" type="button" aria-label="Toggle cue list" title="Toggle cue list">›</button>
       <div class="editor-toc-header">Cues</div>
       <div class="editor-toc-list" role="navigation" aria-label="Cue list"></div>
     `;
     tocPanelEl = panel;
     tocListEl = panel.querySelector('.editor-toc-list');
     document.body.appendChild(panel);
+
+    const toggle = panel.querySelector('.editor-toc-toggle');
+    toggle?.addEventListener('click', (e) => {
+      e.preventDefault();
+      setTocVisible(!tocVisible);
+    });
 
     panel.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-cue-id]');
@@ -195,6 +203,14 @@
       if (!cue) return;
       setPendingCue(cue);
     });
+  }
+
+  function setTocVisible(next) {
+    tocVisible = Boolean(next);
+    if (!tocPanelEl) return;
+    tocPanelEl.classList.toggle('is-visible', tocVisible);
+    const toggle = tocPanelEl.querySelector('.editor-toc-toggle');
+    if (toggle) toggle.textContent = tocVisible ? '›' : '‹';
   }
 
   function refreshCueToc() {

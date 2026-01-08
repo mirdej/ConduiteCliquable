@@ -26,6 +26,8 @@
   let lastDropKey = null;
   let draggingCueSize = null;
   let commentBubbleEl = null;
+  let tocPanelEl = null;
+  let tocListEl = null;
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -90,6 +92,8 @@
     document.body.prepend(playbarSpacer);
     document.body.appendChild(controls);
 
+    mountCueTocPanel();
+
     // Theme init
     try {
       const pref = localStorage.getItem('editorTheme');
@@ -112,6 +116,11 @@
     // Sync UI labels + visuals to initial mode.
     syncModeUi();
     applyMode();
+
+    // Slide in TOC after first paint.
+    requestAnimationFrame(() => {
+      if (tocPanelEl) tocPanelEl.classList.add('is-visible');
+    });
   });
 
   function ensureCommentBubble() {
@@ -163,6 +172,53 @@
     el.classList.toggle('is-visible', shouldShow);
     // Position after layout updates.
     requestAnimationFrame(positionCommentBubble);
+  }
+
+  function mountCueTocPanel() {
+    if (tocPanelEl) return;
+    const panel = document.createElement('aside');
+    panel.className = 'editor-toc';
+    panel.innerHTML = `
+      <div class="editor-toc-header">Cues</div>
+      <div class="editor-toc-list" role="navigation" aria-label="Cue list"></div>
+    `;
+    tocPanelEl = panel;
+    tocListEl = panel.querySelector('.editor-toc-list');
+    document.body.appendChild(panel);
+
+    panel.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-cue-id]');
+      if (!btn) return;
+      const cueId = btn.getAttribute('data-cue-id');
+      if (!cueId) return;
+      const cue = document.querySelector(`.cue-label[data-cue-id="${cssEscape(cueId)}"]`);
+      if (!cue) return;
+      setPendingCue(cue);
+    });
+  }
+
+  function refreshCueToc() {
+    if (!tocListEl) return;
+    const cues = getCueLabels();
+    const pendingId = pendingCueEl?.dataset?.cueId || '';
+
+    tocListEl.innerHTML = '';
+    for (const cue of cues) {
+      const cueId = cue.dataset.cueId || '';
+      const name = (cue.dataset.name || cue.textContent || '').trim() || '(cue)';
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'editor-toc-item';
+      if (cueId && cueId === pendingId) item.classList.add('is-active');
+      item.setAttribute('data-cue-id', cueId);
+      item.textContent = name;
+      tocListEl.appendChild(item);
+    }
+  }
+
+  function cssEscape(str) {
+    if (globalThis.CSS?.escape) return CSS.escape(str);
+    return String(str).replace(/[^a-zA-Z0-9_-]/g, (m) => `\\${m}`);
   }
 
   // Keep comment bubble near the cue if the page scrolls/resizes.
@@ -460,7 +516,7 @@
     const htmlEl = document.documentElement.cloneNode(true);
 
     // Remove injected editor artifacts
-    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
+    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script').forEach((s) => {
       const t = (s.textContent || '').trim();
@@ -493,6 +549,7 @@
     if (selectedCueEl === el) selectedCueEl = null;
     try { el.remove(); } catch {}
     setStatus('Cue deleted');
+    refreshCueToc();
   }
 
   // Cue labels
@@ -532,6 +589,7 @@
       el.dataset.mode = editMode && !playMode ? 'edit' : 'play';
       el.setAttribute('draggable', String(Boolean(editMode && !playMode)));
     }
+    refreshCueToc();
   }
 
   function addCueAtSelection() {
@@ -604,6 +662,7 @@
       pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     updateCommentBubble();
+    refreshCueToc();
   }
 
   function gotoCueByDelta(delta) {
@@ -719,8 +778,10 @@
         draggingCueEl.dataset.fromTemplate = '';
         setStatus('Cue added');
       }
+      refreshCueToc();
     } else {
       setStatus('Cue moved');
+      refreshCueToc();
     }
   });
 

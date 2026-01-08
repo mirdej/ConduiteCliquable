@@ -71,13 +71,13 @@ app.post('/saveHtml', async (req, res) => {
     const html = typeof req.body?.html === 'string' ? req.body.html : '';
     if (!html.trim()) return res.status(400).json({ ok: false, error: 'No html provided' });
 
-    await createBackup(TARGET_FILE);
+    // Backups are created via POST /backup (client triggers them periodically).
 
     const dom = new JSDOM(html);
     const { document } = dom.window;
 
     // Remove editor artifacts before writing back.
-    document.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
+    document.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
     document.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
     // Remove the injected inline config script (best-effort)
     document.querySelectorAll('script').forEach((s) => {
@@ -123,11 +123,7 @@ function getNodeByPath(document, pathArr) {
 }
 
 async function createBackup(filePath) {
-  const ts = new Date()
-    .toISOString()
-    .replace(/[:.]/g, '-')
-    .replace('T', '_')
-    .slice(0, 19);
+  const ts = formatBackupTimestampLocal(new Date());
   await fs.mkdir(BACKUP_DIR, { recursive: true });
   const { name, ext } = path.parse(filePath);
   const backupName = `${name}.backup-${ts}${ext || '.html'}`;
@@ -135,4 +131,22 @@ async function createBackup(filePath) {
   const content = await fs.readFile(filePath);
   await fs.writeFile(backupPath, content);
   return backupPath;
+}
+
+function formatBackupTimestampLocal(date) {
+  // Use a stable local timestamp for filenames.
+  // Europe/Paris corresponds to the commonly expected GMT+1 (with DST to GMT+2).
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date);
+
+  // 'sv-SE' yields 'YYYY-MM-DD HH:MM:SS'
+  return parts.replace(' ', '_').replace(/:/g, '-');
 }

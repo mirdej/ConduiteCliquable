@@ -25,6 +25,7 @@
   let dropIndicatorEl = null;
   let lastDropKey = null;
   let draggingCueSize = null;
+  let commentBubbleEl = null;
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -46,7 +47,6 @@
       <button data-action="theme">Theme: Dark</button>
       <button data-action="toggle">Editing: On</button>
       <button data-action="save">Save</button>
-      <button data-action="backup">Backup</button>
     </div>
   `;
 
@@ -114,6 +114,65 @@
     applyMode();
   });
 
+  function ensureCommentBubble() {
+    if (commentBubbleEl) return commentBubbleEl;
+    const el = document.createElement('div');
+    el.className = 'editor-comment-bubble';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+    commentBubbleEl = el;
+    return el;
+  }
+
+  function positionCommentBubble() {
+    if (!commentBubbleEl) return;
+    if (!pendingCueEl) return;
+    if (!commentBubbleEl.classList.contains('is-visible')) return;
+
+    const cueRect = pendingCueEl.getBoundingClientRect();
+    const bubbleRect = commentBubbleEl.getBoundingClientRect();
+    const pad = 12;
+    const gap = 10;
+
+    // Prefer to the right of the cue; if not enough space, go left; if still tight, go below.
+    let x = cueRect.right + gap;
+    let y = cueRect.top - 6;
+
+    if (x + bubbleRect.width + pad > window.innerWidth) {
+      x = cueRect.left - gap - bubbleRect.width;
+    }
+
+    if (x < pad) {
+      x = Math.min(window.innerWidth - pad - bubbleRect.width, cueRect.left);
+      y = cueRect.bottom + gap;
+    }
+
+    x = Math.max(pad, Math.min(window.innerWidth - pad - bubbleRect.width, x));
+    y = Math.max(pad, Math.min(window.innerHeight - pad - bubbleRect.height, y));
+
+    commentBubbleEl.style.left = `${Math.round(x)}px`;
+    commentBubbleEl.style.top = `${Math.round(y)}px`;
+  }
+
+  function updateCommentBubble() {
+    const el = ensureCommentBubble();
+    const comment = (pendingCueEl?.dataset?.comment || '').trim();
+    const shouldShow = Boolean(playMode && comment.length);
+    el.textContent = comment;
+    el.classList.toggle('is-visible', shouldShow);
+    // Position after layout updates.
+    requestAnimationFrame(positionCommentBubble);
+  }
+
+  // Keep comment bubble near the cue if the page scrolls/resizes.
+  window.addEventListener('scroll', () => {
+    requestAnimationFrame(positionCommentBubble);
+  }, true);
+  window.addEventListener('resize', () => {
+    requestAnimationFrame(positionCommentBubble);
+  });
+
   function templateCueEl() {
     return controls.querySelector('.cue-label--template');
   }
@@ -128,6 +187,18 @@
     if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
     e.preventDefault();
     setMode(!playMode);
+  });
+
+  // Keyboard shortcut: Cmd/Ctrl+S triggers Save.
+  document.addEventListener('keydown', async (e) => {
+    const key = (e.key || '').toLowerCase();
+    if (key !== 's') return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.shiftKey || e.altKey) return;
+    // If the inline overlay editor is open, let it handle Cmd+S.
+    if (document.activeElement?.closest?.('.editor-overlay')) return;
+    e.preventDefault();
+    await saveHtml();
   });
 
   // Delete selected cue in Edit mode (Delete/Backspace). Esc clears selection.
@@ -219,17 +290,6 @@
       await saveHtml();
       return;
     }
-
-    if (action === 'backup') {
-      try {
-        const res = await fetch(cfg.backupUrl, { method: 'POST' });
-        const json = await res.json();
-        if (json.ok) setStatus('Backup created');
-        else setStatus('Backup failed');
-      } catch {
-        setStatus('Backup error');
-      }
-    }
   });
 
   playbar.addEventListener('click', (e) => {
@@ -247,6 +307,7 @@
     pendingCueEl.dataset.video = pendingVideoEl()?.value ?? '';
     pendingCueEl.dataset.audio = pendingAudioEl()?.value ?? '';
     pendingCueEl.dataset.comment = pendingCommentEl()?.value ?? '';
+    updateCommentBubble();
   });
 
   function setStatus(msg) {
@@ -282,6 +343,7 @@
     if (eb) eb.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
     applyEditModeVisual();
     applyGoEnabledState();
+    updateCommentBubble();
   }
 
   function setMode(nextPlayMode) {
@@ -309,6 +371,8 @@
     } else {
       setPendingCue(pendingCueEl);
     }
+
+    updateCommentBubble();
   }
 
   // Click-to-edit text node (text only)
@@ -338,6 +402,10 @@
   }, true);
 
   async function saveHtml() {
+    const nextSaveNumber = getSaveCount() + 1;
+    if (nextSaveNumber % 5 === 0) {
+      await maybeAutoBackup();
+    }
     const html = serializeCleanHtml();
     try {
       const res = await fetch(cfg.saveHtmlUrl || '/saveHtml', {
@@ -346,10 +414,38 @@
         body: JSON.stringify({ html })
       });
       const json = await res.json();
-      if (json.ok) setStatus('Saved');
+      if (json.ok) {
+        setSaveCount(nextSaveNumber);
+        setStatus('Saved');
+      }
       else setStatus('Save failed');
     } catch {
       setStatus('Save error');
+    }
+  }
+
+  function getSaveCount() {
+    try {
+      const raw = localStorage.getItem('editorSaveCount');
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  function setSaveCount(n) {
+    try { localStorage.setItem('editorSaveCount', String(n)); } catch {}
+  }
+
+  async function maybeAutoBackup() {
+    try {
+      const res = await fetch(cfg.backupUrl, { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) setStatus('Auto-backup created');
+      else setStatus('Auto-backup failed');
+    } catch {
+      setStatus('Auto-backup error');
     }
   }
 
@@ -357,7 +453,7 @@
     const htmlEl = document.documentElement.cloneNode(true);
 
     // Remove injected editor artifacts
-    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
+    htmlEl.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
     htmlEl.querySelectorAll('script').forEach((s) => {
       const t = (s.textContent || '').trim();
@@ -497,6 +593,7 @@
     if (pendingCommentEl()) pendingCommentEl().value = pendingCueEl.dataset.comment || '';
 
     pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    updateCommentBubble();
   }
 
   function gotoCueByDelta(delta) {

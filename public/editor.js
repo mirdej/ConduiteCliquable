@@ -36,6 +36,8 @@
   let tocListEl = null;
   let tocVisible = false;
   let lastTriggeredCueId = '';
+  /** @type {Record<string, boolean>} */
+  let collapsedSections = {};
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -54,6 +56,7 @@
       <button class="editor-btn-search" data-action="clear-search" title="Clear search" aria-label="Clear search">✕</button>
       <span class="editor-controls-sep"></span>
       <span class="cue-label cue-label--template" data-template="1" draggable="true" title="Drag into the script to create a new cue">New cue. Drag me!</span>
+      <span class="cue-separator cue-separator--template" data-template="1" draggable="true" title="Drag into the script to create a new section separator">Section. Drag me!</span>
       <span class="editor-status" aria-live="polite"></span>
     </div>
     <div class="editor-controls-right">
@@ -259,9 +262,18 @@
     });
 
     panel.addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-cue-id]');
-      if (!btn) return;
-      const cueId = btn.getAttribute('data-cue-id');
+      const sectionBtn = e.target.closest('[data-sep-id]');
+      if (sectionBtn) {
+        const sepId = sectionBtn.getAttribute('data-sep-id') || '';
+        if (!sepId) return;
+        collapsedSections[sepId] = !collapsedSections[sepId];
+        refreshCueToc();
+        return;
+      }
+
+      const cueBtn = e.target.closest('[data-cue-id]');
+      if (!cueBtn) return;
+      const cueId = cueBtn.getAttribute('data-cue-id');
       if (!cueId) return;
       const cue = document.querySelector(`.cue-label[data-cue-id="${cssEscape(cueId)}"]`);
       if (!cue) return;
@@ -279,11 +291,28 @@
 
   function refreshCueToc() {
     if (!tocListEl) return;
-    const cues = getCueLabels();
     const pendingId = pendingCueEl?.dataset?.cueId || '';
 
     tocListEl.innerHTML = '';
-    for (const cue of cues) {
+
+    const nodes = Array.from(document.querySelectorAll('.cue-separator:not(.cue-separator--template), .cue-label:not(.cue-label--template)'));
+    let activeSepId = '';
+
+    const renderSectionHeader = (sepEl) => {
+      const sepId = sepEl.dataset.sepId || '';
+      if (!sepId) return;
+      const name = (sepEl.dataset.name || sepEl.textContent || '').trim() || 'Section';
+      const collapsed = Boolean(collapsedSections[sepId]);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'editor-toc-section';
+      btn.setAttribute('data-sep-id', sepId);
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.textContent = `${collapsed ? '▸' : '▾'} ${name}`;
+      tocListEl.appendChild(btn);
+    };
+
+    const renderCueItem = (cue) => {
       const cueId = cue.dataset.cueId || '';
       const name = (cue.dataset.name || cue.textContent || '').trim() || '(cue)';
       const item = document.createElement('button');
@@ -313,6 +342,18 @@
       item.appendChild(nameEl);
       item.appendChild(indEl);
       tocListEl.appendChild(item);
+    };
+
+    for (const n of nodes) {
+      if (n.classList.contains('cue-separator')) {
+        activeSepId = n.dataset.sepId || '';
+        renderSectionHeader(n);
+        continue;
+      }
+
+      // cue-label
+      if (activeSepId && collapsedSections[activeSepId]) continue;
+      renderCueItem(n);
     }
   }
 
@@ -331,6 +372,10 @@
 
   function templateCueEl() {
     return controls.querySelector('.cue-label--template');
+  }
+
+  function templateSeparatorEl() {
+    return controls.querySelector('.cue-separator--template');
   }
 
   // Keyboard shortcut: Cmd/Ctrl+E toggles Play/Edit mode.
@@ -586,8 +631,8 @@
       try { n.setAttribute('contenteditable', 'false'); } catch {}
     });
 
-    // Keep cue labels controlled (rename via our prompt so dataset stays in sync).
-    document.querySelectorAll('.cue-label').forEach((n) => {
+    // Keep cue labels and separators controlled (rename via our prompt so dataset stays in sync).
+    document.querySelectorAll('.cue-label, .cue-separator').forEach((n) => {
       try { n.setAttribute('contenteditable', 'false'); } catch {}
     });
 
@@ -651,6 +696,8 @@
     document.documentElement.classList.toggle('editor-edit-mode', Boolean(editMode && !playMode));
     const tmpl = templateCueEl();
     if (tmpl) tmpl.style.display = (editMode && !playMode) ? 'inline-block' : 'none';
+    const st = templateSeparatorEl();
+    if (st) st.style.display = (editMode && !playMode) ? 'inline-block' : 'none';
 
     applyWysiwygEditableState();
   }
@@ -681,11 +728,13 @@
 
     playMode = Boolean(nextPlayMode);
     editMode = !playMode;
+
     // Don't keep an edit-selection when leaving edit mode.
     if (!(editMode && !playMode)) {
       clearSelectedCue();
       clearSelectedDomEl();
     }
+
     syncModeUi();
     applyMode({ preserveScroll: true });
     updateCueInteractivity();
@@ -716,6 +765,23 @@
   // Click-to-edit text node (text only)
   document.addEventListener('dblclick', (e) => {
     if (!(editMode && !playMode)) return;
+
+    // In edit mode: double-click a separator to rename it.
+    const sep = e.target?.closest?.('.cue-separator');
+    if (sep) {
+      if (sep.classList.contains('cue-separator--template')) return;
+      e.preventDefault();
+      const currentName = String(sep.dataset.name || sep.textContent || '').trim();
+      const suggested = currentName || 'Section';
+      const name = window.prompt('Section name:', suggested);
+      if (name === null) return;
+      const finalName = String(name).trim() || suggested;
+      sep.dataset.name = finalName;
+      sep.textContent = finalName;
+      setStatus('Section renamed');
+      refreshCueToc();
+      return;
+    }
 
     // In edit mode: double-click a cue to rename it.
     const cue = e.target?.closest?.('.cue-label');
@@ -887,8 +953,24 @@
     return el;
   }
 
+  function createCueSeparator(name) {
+    const el = document.createElement('span');
+    el.className = 'cue-separator';
+    const id = (globalThis.crypto?.randomUUID?.() || `sep-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    el.dataset.sepId = id;
+    el.dataset.name = (name && String(name).trim()) ? String(name).trim() : 'Section';
+    el.textContent = el.dataset.name;
+    el.setAttribute('draggable', 'false');
+    return el;
+  }
+
   function updateCueInteractivity() {
     for (const el of getCueLabels()) {
+      el.dataset.mode = editMode && !playMode ? 'edit' : 'play';
+      el.setAttribute('draggable', String(Boolean(editMode && !playMode)));
+    }
+
+    for (const el of document.querySelectorAll('.cue-separator:not(.cue-separator--template)')) {
       el.dataset.mode = editMode && !playMode ? 'edit' : 'play';
       el.setAttribute('draggable', String(Boolean(editMode && !playMode)));
     }
@@ -1052,7 +1134,7 @@
           clearSelectedDomEl();
           return;
         }
-        if (el.classList.contains('cue-label')) {
+        if (el.classList.contains('cue-label') || el.classList.contains('cue-separator')) {
           clearSelectedDomEl();
           return;
         }
@@ -1063,22 +1145,29 @@
 
   // Drag/drop cue movement (edit mode only)
   document.addEventListener('dragstart', (e) => {
-    const cue = e.target?.closest?.('.cue-label');
-    if (!cue) return;
+    const el = e.target?.closest?.('.cue-label, .cue-separator');
+    if (!el) return;
     if (!(editMode && !playMode)) {
       e.preventDefault();
       return;
     }
     clearDropPreview();
-    const isTemplate = cue.classList.contains('cue-label--template') || cue.dataset.template === '1';
-    draggingCueEl = isTemplate ? createCueLabel('') : cue;
+
+    const isCueTemplate = el.classList.contains('cue-label--template') || (el.dataset.template === '1' && el.classList.contains('cue-label'));
+    const isSepTemplate = el.classList.contains('cue-separator--template') || (el.dataset.template === '1' && el.classList.contains('cue-separator'));
+    const isSeparator = el.classList.contains('cue-separator') || isSepTemplate;
+    const isTemplate = isCueTemplate || isSepTemplate;
+
+    draggingCueEl = isTemplate ? (isSeparator ? createCueSeparator('') : createCueLabel('')) : el;
     draggingCueEl.dataset.fromTemplate = isTemplate ? '1' : '';
-    const r = cue.getBoundingClientRect();
+    draggingCueEl.dataset.itemType = isSeparator ? 'sep' : 'cue';
+
+    const r = el.getBoundingClientRect();
     draggingCueSize = { w: Math.max(20, r.width), h: Math.max(14, r.height) };
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       // Some browsers require data to be set for drag events to work.
-      e.dataTransfer.setData('text/plain', cue.dataset.cueId || cue.dataset.name || 'cue');
+      e.dataTransfer.setData('text/plain', el.dataset.cueId || el.dataset.sepId || el.dataset.name || 'item');
     }
   });
 
@@ -1111,33 +1200,51 @@
     updateCueInteractivity();
 
     if (draggingCueEl.dataset.fromTemplate === '1') {
-      const suggested = nextCueName();
-      const name = window.prompt('Cue name:', suggested);
-      if (name === null) {
-        try { draggingCueEl.remove(); } catch {}
-        setStatus('Cancelled');
-      } else {
-        const finalName = String(name).trim() || suggested;
-        draggingCueEl.dataset.name = finalName;
-        draggingCueEl.textContent = finalName;
-        draggingCueEl.dataset.fromTemplate = '';
-        setStatus('Cue added');
-        // Newly created cue should become the pending cue.
-        setPendingCue(draggingCueEl, { scroll: false });
-
-        // After dropping + naming a cue, focus the Light textbox for immediate entry.
-        const light = pendingLightEl();
-        if (light) {
-          // Defer to ensure the DOM/state updates are fully applied.
-          requestAnimationFrame(() => {
-            try { light.focus(); } catch {}
-            try { light.select(); } catch {}
-          });
+      if (draggingCueEl.dataset.itemType === 'sep') {
+        const suggested = 'Section';
+        const name = window.prompt('Section name:', suggested);
+        if (name === null) {
+          try { draggingCueEl.remove(); } catch {}
+          setStatus('Cancelled');
+        } else {
+          const finalName = String(name).trim() || suggested;
+          draggingCueEl.dataset.name = finalName;
+          draggingCueEl.textContent = finalName;
+          draggingCueEl.dataset.fromTemplate = '';
+          draggingCueEl.dataset.itemType = '';
+          setStatus('Section added');
         }
+        refreshCueToc();
+      } else {
+        const suggested = nextCueName();
+        const name = window.prompt('Cue name:', suggested);
+        if (name === null) {
+          try { draggingCueEl.remove(); } catch {}
+          setStatus('Cancelled');
+        } else {
+          const finalName = String(name).trim() || suggested;
+          draggingCueEl.dataset.name = finalName;
+          draggingCueEl.textContent = finalName;
+          draggingCueEl.dataset.fromTemplate = '';
+          draggingCueEl.dataset.itemType = '';
+          setStatus('Cue added');
+          // Newly created cue should become the pending cue.
+          setPendingCue(draggingCueEl, { scroll: false });
+
+          // After dropping + naming a cue, focus the Light textbox for immediate entry.
+          const light = pendingLightEl();
+          if (light) {
+            // Defer to ensure the DOM/state updates are fully applied.
+            requestAnimationFrame(() => {
+              try { light.focus(); } catch {}
+              try { light.select(); } catch {}
+            });
+          }
+        }
+        refreshCueToc();
       }
-      refreshCueToc();
     } else {
-      setStatus('Cue moved');
+      setStatus(draggingCueEl.classList.contains('cue-separator') ? 'Section moved' : 'Cue moved');
       refreshCueToc();
     }
   });
@@ -1151,7 +1258,7 @@
   function normalizeRangeForCueDrop(range) {
     const n = range.startContainer;
     const el = n?.nodeType === 1 ? n : n?.parentElement;
-    const inCue = el?.closest?.('.cue-label');
+    const inCue = el?.closest?.('.cue-label, .cue-separator');
     if (inCue) {
       try {
         range.setStartAfter(inCue);

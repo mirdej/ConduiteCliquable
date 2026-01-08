@@ -154,6 +154,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  margin-left: 10px;
 }
 .editor-toc-item:hover {
   background: rgba(255,255,255,0.14);
@@ -269,6 +270,49 @@
   padding: 4px 8px;
   margin: 0;
   cursor: grab;
+}
+
+/* Cue section separators */
+.cue-separator {
+  display: inline-block;
+  padding: 4px 10px;
+  margin: 0 2px;
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1.4;
+  border: 1px dashed rgba(0,0,0,0.35);
+  background: rgba(255,255,255,0.6);
+  color: #111;
+  user-select: none;
+  cursor: pointer;
+}
+.cue-separator[data-mode="edit"] {
+  cursor: grab;
+}
+
+.editor-controls .cue-separator--template {
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 4px 8px;
+}
+
+/* TOC section headers */
+.editor-toc-section {
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  background: rgba(0,0,0,0.28);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  display: block;
+  width: 100%;
+  margin-left: 0;
+}
+.editor-toc-section:hover {
+  background: rgba(0,0,0,0.38);
 }
 
 /* Drag/drop preview */

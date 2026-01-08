@@ -10,6 +10,9 @@
   let playMode = true;
   let isDark = true;
 
+  // Keyboard shortcut state
+  let spacebarGoShortcutEnabled = true;
+
   // Search state
   let searchHits = [];
   let currentHitIndex = -1;
@@ -53,6 +56,7 @@
       <button data-action="mode">Mode: Edit</button>
       <button data-action="theme">Theme: Dark</button>
       <button data-action="toggle">Editing: On</button>
+      <button data-action="spacebar-go" title="Enable/disable Spacebar to GO">Space GO: On</button>
       <button data-action="save">Save</button>
     </div>
   `;
@@ -83,6 +87,7 @@
   const themeBtnEl = () => controls.querySelector('button[data-action="theme"]');
   const modeBtnEl = () => controls.querySelector('button[data-action="mode"]');
   const toggleBtnEl = () => controls.querySelector('button[data-action="toggle"]');
+  const spacebarGoBtnEl = () => controls.querySelector('button[data-action="spacebar-go"]');
 
   const pendingLabelEl = () => playbar.querySelector('.playbar-pending-label');
   const pendingLightEl = () => playbar.querySelector('.playbar-light');
@@ -103,6 +108,13 @@
     try {
       const pref = localStorage.getItem('editorTheme');
       if (pref === 'light') isDark = false;
+    } catch {}
+
+    // Spacebar GO shortcut init
+    try {
+      const pref = localStorage.getItem('editorSpacebarGo');
+      if (pref === '0') spacebarGoShortcutEnabled = false;
+      if (pref === '1') spacebarGoShortcutEnabled = true;
     } catch {}
     applyTheme();
     const t = themeBtnEl();
@@ -133,6 +145,21 @@
 
     updateSearchUi();
   });
+
+  function applySpacebarGoShortcutUi() {
+    const b = spacebarGoBtnEl();
+    if (!b) return;
+    b.textContent = `Space GO: ${spacebarGoShortcutEnabled ? 'On' : 'Off'}`;
+    b.setAttribute('aria-pressed', String(spacebarGoShortcutEnabled));
+  }
+
+  function isTypingContext() {
+    const active = document.activeElement;
+    const tag = active?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || active?.isContentEditable) return true;
+    if (active?.closest?.('.editor-overlay')) return true;
+    return false;
+  }
 
   function ensureCommentBubble() {
     if (commentBubbleEl) return commentBubbleEl;
@@ -283,6 +310,25 @@
     await saveHtml();
   });
 
+  // Keyboard shortcut: Space triggers GO (optional).
+  document.addEventListener('keydown', (e) => {
+    if (!spacebarGoShortcutEnabled) return;
+    if (!playMode) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (e.repeat) return;
+    if (isTypingContext()) return;
+
+    const isSpace = e.code === 'Space' || e.key === ' ';
+    if (!isSpace) return;
+
+    // Only handle if GO is currently enabled.
+    const go = goBtnEl();
+    if (go?.disabled) return;
+
+    e.preventDefault();
+    triggerPendingCueAndAdvance();
+  });
+
   // Delete selected cue in Edit mode (Delete/Backspace). Esc clears selection.
   document.addEventListener('keydown', (e) => {
     if (!(editMode && !playMode)) return;
@@ -332,6 +378,14 @@
       setStatus(editMode ? 'Editing enabled' : 'Editing disabled');
       applyEditModeVisual();
       updateCueInteractivity();
+      return;
+    }
+
+    if (action === 'spacebar-go') {
+      spacebarGoShortcutEnabled = !spacebarGoShortcutEnabled;
+      applySpacebarGoShortcutUi();
+      setStatus(spacebarGoShortcutEnabled ? 'Spacebar GO enabled' : 'Spacebar GO disabled');
+      try { localStorage.setItem('editorSpacebarGo', spacebarGoShortcutEnabled ? '1' : '0'); } catch {}
       return;
     }
 
@@ -423,6 +477,7 @@
     if (b) b.textContent = `Mode: ${playMode ? 'Play' : 'Edit'}`;
     const eb = toggleBtnEl();
     if (eb) eb.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
+    applySpacebarGoShortcutUi();
     applyEditModeVisual();
     applyGoEnabledState();
     updateCommentBubble();

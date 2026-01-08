@@ -24,20 +24,24 @@
   const controls = document.createElement('div');
   controls.className = 'editor-controls';
   controls.innerHTML = `
-    <input type="search" class="editor-search-input" placeholder="Search…" />
-    <button data-action="find">Find</button>
-    <button data-action="prev">Prev</button>
-    <button data-action="next">Next</button>
-    <span class="editor-search-count"></span>
-    <button data-action="clear-search" title="Clear search">✕</button>
-    <span class="editor-controls-sep"></span>
-    <button data-action="add-cue">Add Cue</button>
-    <button data-action="mode">Mode: Edit</button>
-    <button data-action="theme">Theme: Dark</button>
-    <button data-action="toggle">Editing: On</button>
-    <button data-action="save">Save</button>
-    <button data-action="backup">Backup</button>
-    <span class="editor-status" aria-live="polite"></span>
+    <div class="editor-controls-left">
+      <input type="search" class="editor-search-input" placeholder="Search…" />
+      <button data-action="find">Find</button>
+      <button data-action="prev">Prev</button>
+      <button data-action="next">Next</button>
+      <span class="editor-search-count"></span>
+      <button data-action="clear-search" title="Clear search">✕</button>
+      <span class="editor-controls-sep"></span>
+      <button data-action="add-cue">Add Cue</button>
+      <span class="editor-status" aria-live="polite"></span>
+    </div>
+    <div class="editor-controls-right">
+      <button data-action="mode">Mode: Edit</button>
+      <button data-action="theme">Theme: Dark</button>
+      <button data-action="toggle">Editing: On</button>
+      <button data-action="save">Save</button>
+      <button data-action="backup">Backup</button>
+    </div>
   `;
 
   // Play bar (fixed top)

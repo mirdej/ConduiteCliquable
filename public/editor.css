@@ -2,17 +2,37 @@
 .editor-controls {
   position: fixed;
   z-index: 999999;
-  right: 12px;
-  bottom: 12px;
-  display: inline-flex;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
   gap: 8px;
   background: rgba(20,20,20,0.85);
   color: #fff;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 0;
   box-shadow: 0 4px 16px rgba(0,0,0,0.25);
   backdrop-filter: blur(6px);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.editor-controls-left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-right: 420px;
+}
+
+.editor-controls-right {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
 }
 .editor-controls input[type="search"] {
   border: 1px solid #666;
@@ -129,13 +149,18 @@
   right: 0;
   top: 0;
   padding: 10px 12px;
+  width: 100%;
+  box-sizing: border-box;
   background: rgba(20,20,20,0.92);
   color: #fff;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   display: none;
   gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-height: 64px;
+  padding-right: 240px;
 }
 .editor-playbar.is-visible {
   display: flex;
@@ -159,6 +184,10 @@
   min-width: 120px;
 }
 .editor-playbar .playbar-actions {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   gap: 8px;
   align-items: center;

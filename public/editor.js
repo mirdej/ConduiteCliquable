@@ -36,11 +36,15 @@
   controls.innerHTML = `
     <div class="editor-controls-left">
       <input type="search" class="editor-search-input" placeholder="Search…" />
-      <button data-action="find">Find</button>
-      <button data-action="prev">Prev</button>
-      <button data-action="next">Next</button>
+      <button class="editor-btn-search" data-action="find" title="Find" aria-label="Find">
+        <svg class="editor-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M10 4a6 6 0 1 0 3.7 10.7l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/>
+        </svg>
+      </button>
+      <button class="editor-btn-search" data-action="prev" title="Previous match">Prev</button>
+      <button class="editor-btn-search" data-action="next" title="Next match">Next</button>
       <span class="editor-search-count"></span>
-      <button data-action="clear-search" title="Clear search">✕</button>
+      <button class="editor-btn-search" data-action="clear-search" title="Clear search" aria-label="Clear search">✕</button>
       <span class="editor-controls-sep"></span>
       <span class="cue-label cue-label--template" data-template="1" draggable="true" title="Drag into the script to create a new cue">New cue. Drag me!</span>
       <span class="editor-status" aria-live="polite"></span>
@@ -110,6 +114,10 @@
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') performSearch(input.value.trim());
       });
+
+      input.addEventListener('input', () => {
+        updateSearchUi();
+      });
     }
 
     // Ensure any existing cue labels behave properly
@@ -122,6 +130,8 @@
     requestAnimationFrame(() => {
       setTocVisible(true);
     });
+
+    updateSearchUi();
   });
 
   function ensureCommentBubble() {
@@ -932,7 +942,16 @@
     const out = [];
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        return node.nodeValue.trim().length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        if (!node.nodeValue || !node.nodeValue.trim().length) return NodeFilter.FILTER_SKIP;
+        const pe = node.parentElement;
+        if (pe) {
+          const tag = pe.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_SKIP;
+          if (pe.closest('.editor-controls, .editor-playbar, .editor-toc, .editor-comment-bubble, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator')) {
+            return NodeFilter.FILTER_SKIP;
+          }
+        }
+        return NodeFilter.FILTER_ACCEPT;
       }
     });
     let cur;
@@ -945,6 +964,7 @@
     searchHits = [];
     currentHitIndex = -1;
     updateSearchCount();
+    updateSearchUi();
     if (!query) return;
 
     const q = query.toLowerCase();
@@ -961,12 +981,14 @@
         const rects = Array.from(range.getClientRects());
         const overlays = createHighlightOverlaysForRects(rects);
         const firstRect = rects[0];
+        const absTop = firstRect ? firstRect.top + window.scrollY : null;
         const pathArr = computeNodePath(tn);
-        searchHits.push({ path: pathArr, node: tn, start: idx, end: idx + q.length, rect: firstRect, overlays });
+        searchHits.push({ path: pathArr, node: tn, start: idx, end: idx + q.length, rect: firstRect, absTop, overlays });
         i = idx + q.length;
       }
     }
     updateSearchCount();
+    updateSearchUi();
     if (searchHits.length) gotoHit(0);
   }
 
@@ -977,6 +999,7 @@
     updateSearchCount();
     const input = searchInputEl();
     if (input) input.value = '';
+    updateSearchUi();
   }
 
   function clearHighlightsOnly() {
@@ -994,6 +1017,27 @@
     }
   }
 
+  function updateSearchUi() {
+    const input = searchInputEl();
+    const query = (input?.value || '').trim();
+    const hasQuery = query.length > 0;
+    const hasHits = searchHits.length > 0;
+
+    const findBtn = controls.querySelector('button[data-action="find"]');
+    const prevBtn = controls.querySelector('button[data-action="prev"]');
+    const nextBtn = controls.querySelector('button[data-action="next"]');
+    const clearBtn = controls.querySelector('button[data-action="clear-search"]');
+    const countEl = searchCountEl();
+
+    if (findBtn) findBtn.disabled = !hasQuery;
+
+    if (prevBtn) prevBtn.style.display = hasHits ? '' : 'none';
+    if (nextBtn) nextBtn.style.display = hasHits ? '' : 'none';
+    if (countEl) countEl.style.display = hasHits ? '' : 'none';
+
+    if (clearBtn) clearBtn.style.display = hasQuery ? '' : 'none';
+  }
+
   function gotoHit(index) {
     if (!searchHits.length) return;
     if (index < 0) index = searchHits.length - 1;
@@ -1007,8 +1051,8 @@
     for (const el of hit.overlays) el.classList.add('editor-search-hit--current');
     updateSearchCount();
     // Scroll to hit
-    if (hit.rect) {
-      const top = hit.rect.top + window.scrollY - 80; // offset for comfort
+    if (typeof hit.absTop === 'number') {
+      const top = hit.absTop - 80; // offset for comfort
       window.scrollTo({ top, behavior: 'smooth' });
     } else {
       hit.node.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });

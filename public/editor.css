@@ -335,6 +335,24 @@
   color: #fff;
   min-width: 120px;
 }
+
+/* Narrow fields to keep the bar compact */
+.editor-playbar input.playbar-light,
+.editor-playbar input.playbar-video,
+.editor-playbar input.playbar-audio {
+  width: 5ch;
+  min-width: 5ch;
+  max-width: 5ch;
+}
+
+/* Give more room to metadata */
+.editor-playbar input.playbar-tracker {
+  min-width: 200px;
+}
+
+.editor-playbar input.playbar-comment {
+  min-width: 320px;
+}
 .editor-playbar .playbar-actions {
   position: absolute;
   right: 12px;

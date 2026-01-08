@@ -66,12 +66,40 @@ app.post('/save', async (req, res) => {
   }
 });
 
+app.post('/saveHtml', async (req, res) => {
+  try {
+    const html = typeof req.body?.html === 'string' ? req.body.html : '';
+    if (!html.trim()) return res.status(400).json({ ok: false, error: 'No html provided' });
+
+    await createBackup(TARGET_FILE);
+
+    const dom = new JSDOM(html);
+    const { document } = dom.window;
+
+    // Remove editor artifacts before writing back.
+    document.querySelectorAll('.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar').forEach((n) => n.remove());
+    document.querySelectorAll('script[src="/static/editor.js"], link[href="/static/editor.css"]').forEach((n) => n.remove());
+    // Remove the injected inline config script (best-effort)
+    document.querySelectorAll('script').forEach((s) => {
+      const t = (s.textContent || '').trim();
+      if (t.includes('window.__EDITOR__')) s.remove();
+    });
+    document.documentElement.classList.remove('editor-theme-dark');
+
+    const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Editor server running at http://localhost:${PORT}/edit`);
 });
 
 function injectEditor(html) {
-  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', backupUrl: '/backup' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
+  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${toolbar}\n</body>`);
   }

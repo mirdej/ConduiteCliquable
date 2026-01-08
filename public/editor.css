@@ -99,6 +99,97 @@
   outline: 2px solid rgba(33, 150, 243, 0.9);
 }
 
+/* Cue labels */
+.cue-label {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid rgba(0,0,0,0.2);
+  background: rgba(255, 193, 7, 0.35);
+  color: inherit;
+  user-select: none;
+  cursor: pointer;
+}
+.cue-label[data-mode="edit"] {
+  cursor: grab;
+}
+.cue-label.cue-label--pending {
+  outline: 2px solid rgba(33, 150, 243, 0.9);
+  background: rgba(33, 150, 243, 0.25);
+}
+
+/* Play bar */
+.editor-playbar {
+  position: fixed;
+  z-index: 999999;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: 10px 12px;
+  background: rgba(20,20,20,0.92);
+  color: #fff;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display: none;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.editor-playbar.is-visible {
+  display: flex;
+}
+.editor-playbar .playbar-title {
+  font-weight: 600;
+  margin-right: 8px;
+}
+.editor-playbar label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.editor-playbar input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  min-width: 120px;
+}
+.editor-playbar .playbar-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.editor-playbar button {
+  appearance: none;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #f0f0f0;
+  color: #111;
+  cursor: pointer;
+}
+.editor-playbar button:hover {
+  background: #e6e6e6;
+}
+.editor-playbar .go {
+  font-size: 16px;
+  font-weight: 700;
+  padding: 10px 16px;
+}
+
+/* Give space under the fixed playbar */
+.editor-playbar-spacer {
+  height: 64px;
+  display: none;
+}
+.editor-playbar-spacer.is-visible {
+  display: block;
+}
+
 /* Scoped dark theme (non-destructive) */
 :root.editor-theme-dark {
   color-scheme: dark;

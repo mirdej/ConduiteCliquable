@@ -57,7 +57,6 @@
     </div>
     <div class="editor-controls-right">
       <button data-action="mode">Mode: Edit</button>
-      <button data-action="theme">Theme: Dark</button>
       <button data-action="toggle">Editing: On</button>
       <button data-action="spacebar-go" title="Enable/disable Spacebar to GO">Space GO: On</button>
       <button data-action="save">Save</button>
@@ -88,7 +87,6 @@
   const statusEl = () => controls.querySelector('.editor-status');
   const searchInputEl = () => controls.querySelector('.editor-search-input');
   const searchCountEl = () => controls.querySelector('.editor-search-count');
-  const themeBtnEl = () => controls.querySelector('button[data-action="theme"]');
   const modeBtnEl = () => controls.querySelector('button[data-action="mode"]');
   const toggleBtnEl = () => controls.querySelector('button[data-action="toggle"]');
   const spacebarGoBtnEl = () => controls.querySelector('button[data-action="spacebar-go"]');
@@ -122,8 +120,7 @@
       if (pref === '1') spacebarGoShortcutEnabled = true;
     } catch {}
     applyTheme();
-    const t = themeBtnEl();
-    if (t) t.textContent = `Theme: ${isDark ? 'Dark' : 'Light'}`;
+
 
     // Search input Enter triggers find
     const input = searchInputEl();
@@ -488,15 +485,6 @@
 
     if (action === 'mode') {
       setMode(!playMode);
-      return;
-    }
-
-    if (action === 'theme') {
-      isDark = !isDark;
-      applyTheme();
-      const b = themeBtnEl();
-      if (b) b.textContent = `Theme: ${isDark ? 'Dark' : 'Light'}`;
-      try { localStorage.setItem('editorTheme', isDark ? 'dark' : 'light'); } catch {}
       return;
     }
 

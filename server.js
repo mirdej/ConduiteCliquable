@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 const TARGET_FILE = path.join(__dirname, 'playScript.html');
 const BACKUP_DIR = path.join(__dirname, 'backups');
 
@@ -193,8 +194,9 @@ app.post('/osc/go', (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Editor server running at http://localhost:${PORT}/edit`);
+app.listen(PORT, HOST, () => {
+  console.log(`Editor server listening on http://${HOST}:${PORT}/edit`);
+  console.log(`Open from another device: http://<this-mac-LAN-IP>:${PORT}/edit`);
 });
 
 function injectEditor(html) {

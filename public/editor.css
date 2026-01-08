@@ -141,6 +141,10 @@
   background: hsla(308, 90%, 54%, 0.8);
 }
 
+.cue-label.cue-label--selected {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+}
+
 .editor-controls .cue-label--template {
   font-size: 14px;
   line-height: 1.2;

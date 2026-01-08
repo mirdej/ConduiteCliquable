@@ -18,6 +18,7 @@
   // Pending cue state
   let pendingCueEl = null;
   let draggingCueEl = null;
+  let selectedCueEl = null;
   let lastScriptRange = null;
   let lastPointer = null;
   let dropPlaceholderEl = null;
@@ -126,6 +127,21 @@
     if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
     e.preventDefault();
     setMode(!playMode);
+  });
+
+  // Delete selected cue in Edit mode (Delete/Backspace). Esc clears selection.
+  document.addEventListener('keydown', (e) => {
+    if (!(editMode && !playMode)) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    if (e.key === 'Escape') {
+      clearSelectedCue();
+      return;
+    }
+    if (!selectedCueEl) return;
+    if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+    e.preventDefault();
+    deleteCue(selectedCueEl);
   });
 
   // Track last meaningful selection/click inside the script content.
@@ -261,6 +277,8 @@
   function setMode(nextPlayMode) {
     playMode = Boolean(nextPlayMode);
     editMode = !playMode;
+    // Don't keep an edit-selection when leaving edit mode.
+    if (!(editMode && !playMode)) clearSelectedCue();
     syncModeUi();
     applyMode();
     updateCueInteractivity();
@@ -336,8 +354,31 @@
     });
     htmlEl.classList.remove('editor-theme-dark');
     htmlEl.classList.remove('editor-edit-mode');
+    htmlEl.querySelectorAll('.cue-label--selected').forEach((n) => n.classList.remove('cue-label--selected'));
 
     return '<!DOCTYPE html>\n' + htmlEl.outerHTML;
+  }
+
+  function setSelectedCue(el) {
+    if (selectedCueEl === el) return;
+    if (selectedCueEl) selectedCueEl.classList.remove('cue-label--selected');
+    selectedCueEl = el;
+    if (selectedCueEl) selectedCueEl.classList.add('cue-label--selected');
+  }
+
+  function clearSelectedCue() {
+    if (!selectedCueEl) return;
+    selectedCueEl.classList.remove('cue-label--selected');
+    selectedCueEl = null;
+  }
+
+  function deleteCue(el) {
+    if (!el) return;
+    if (el.classList.contains('cue-label--template')) return;
+    if (pendingCueEl === el) setPendingCue(null);
+    if (selectedCueEl === el) selectedCueEl = null;
+    try { el.remove(); } catch {}
+    setStatus('Cue deleted');
   }
 
   // Cue labels
@@ -476,11 +517,23 @@
   // Cue click selects pending cue in play mode
   document.addEventListener('click', (e) => {
     const cue = e.target?.closest?.('.cue-label');
-    if (!cue) return;
-    if (cue.classList.contains('cue-label--template')) return;
+    if (cue && cue.classList.contains('cue-label--template')) return;
+
     if (playMode) {
+      if (!cue) return;
       e.preventDefault();
       setPendingCue(cue);
+      return;
+    }
+
+    if (editMode && !playMode) {
+      if (cue) {
+        e.preventDefault();
+        setSelectedCue(cue);
+        setStatus('Cue selected (Del to delete)');
+      } else {
+        clearSelectedCue();
+      }
     }
   }, true);
 

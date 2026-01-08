@@ -86,6 +86,7 @@ app.post('/saveHtml', async (req, res) => {
     });
     document.documentElement.classList.remove('editor-theme-dark');
     document.documentElement.classList.remove('editor-edit-mode');
+    document.querySelectorAll('.cue-label--selected').forEach((n) => n.classList.remove('cue-label--selected'));
 
     const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
     await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');

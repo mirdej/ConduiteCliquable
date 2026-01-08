@@ -359,6 +359,27 @@
     await saveHtml();
   });
 
+  // Keyboard shortcut (macOS): Cmd+G finds next.
+  document.addEventListener('keydown', (e) => {
+    const key = (e.key || '').toLowerCase();
+    if (key !== 'g') return;
+    if (!e.metaKey) return;
+    if (e.ctrlKey || e.altKey || e.shiftKey) return;
+
+    const query = searchInputEl()?.value?.trim() || '';
+    if (!query) return;
+
+    e.preventDefault();
+
+    // If there isn't an active result set yet, run the search first.
+    if (!searchHits.length) {
+      performSearch(query);
+      return;
+    }
+
+    gotoHit(currentHitIndex + 1);
+  });
+
   // Keyboard shortcut: Space triggers GO (optional).
   document.addEventListener('keydown', (e) => {
     if (isTypingContext()) return;
@@ -598,8 +619,27 @@
 
   // Click-to-edit text node (text only)
   document.addEventListener('dblclick', (e) => {
-    if (!editMode) return;
-    if (e.target?.closest?.('.cue-label')) return;
+    if (!(editMode && !playMode)) return;
+
+    // In edit mode: double-click a cue to rename it.
+    const cue = e.target?.closest?.('.cue-label');
+    if (cue) {
+      if (cue.classList.contains('cue-label--template')) return;
+      e.preventDefault();
+
+      const currentName = String(cue.dataset.name || cue.textContent || '').trim();
+      const suggested = currentName || nextCueName();
+      const name = window.prompt('Cue name:', suggested);
+      if (name === null) return;
+      const finalName = String(name).trim() || suggested;
+      cue.dataset.name = finalName;
+      cue.textContent = finalName;
+      setStatus('Cue renamed');
+      if (pendingCueEl === cue) setPendingCue(cue, { scroll: false });
+      refreshCueToc();
+      return;
+    }
+
     if (e.target?.closest?.('.editor-controls, .editor-playbar')) return;
     const target = e.target;
     const { clientX: x, clientY: y } = e;

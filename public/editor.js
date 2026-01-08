@@ -347,16 +347,22 @@
   }
 
   function setMode(nextPlayMode) {
+    // Preserve exact scroll position when toggling modes.
+    const sx = window.scrollX;
+    const sy = window.scrollY;
+
     playMode = Boolean(nextPlayMode);
     editMode = !playMode;
     // Don't keep an edit-selection when leaving edit mode.
     if (!(editMode && !playMode)) clearSelectedCue();
     syncModeUi();
-    applyMode();
+    applyMode({ preserveScroll: true });
     updateCueInteractivity();
+
+    window.scrollTo(sx, sy);
   }
 
-  function applyMode() {
+  function applyMode(opts = {}) {
     // Keep playbar visible in both modes so cue fields are always editable.
     playbar.classList.add('is-visible');
     playbarSpacer.classList.add('is-visible');
@@ -364,12 +370,13 @@
     applyGoEnabledState();
 
     // If nothing selected, default to first cue (in either mode).
+    const shouldPreserveScroll = Boolean(opts.preserveScroll);
     if (!pendingCueEl) {
       const cues = getCueLabels();
-      if (cues.length) setPendingCue(cues[0]);
+      if (cues.length) setPendingCue(cues[0], { scroll: !shouldPreserveScroll });
       else setPendingCue(null);
     } else {
-      setPendingCue(pendingCueEl);
+      setPendingCue(pendingCueEl, { scroll: !shouldPreserveScroll });
     }
 
     updateCommentBubble();
@@ -571,7 +578,7 @@
     setStatus('Cue added (appended)');
   }
 
-  function setPendingCue(el) {
+  function setPendingCue(el, opts = {}) {
     if (pendingCueEl) pendingCueEl.classList.remove('cue-label--pending');
     pendingCueEl = el;
     if (pendingCueEl) pendingCueEl.classList.add('cue-label--pending');
@@ -592,7 +599,10 @@
     if (pendingAudioEl()) pendingAudioEl().value = pendingCueEl.dataset.audio || '';
     if (pendingCommentEl()) pendingCommentEl().value = pendingCueEl.dataset.comment || '';
 
-    pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const shouldScroll = opts.scroll !== false;
+    if (shouldScroll) {
+      pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
     updateCommentBubble();
   }
 

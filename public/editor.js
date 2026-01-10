@@ -44,6 +44,18 @@
   let ws = null;
   let suppressWsSend = false;
 
+  // GO hold-to-trigger state (prevents false triggers on touch screens)
+  let goHoldActive = false;
+  let goHoldPointerId = null;
+  let ignoreGoClickUntil = 0;
+  let goHoldInside = false;
+  /** @type {HTMLDivElement | null} */
+  let goShieldEl = null;
+  let goHoldBlockersAttached = false;
+  let goHoldScrollY = 0;
+  /** @type {Partial<CSSStyleDeclaration> | null} */
+  let goHoldBodyPrevStyle = null;
+
   // Controls (bottom-right)
   const controls = document.createElement('div');
   controls.className = 'editor-controls';
@@ -108,6 +120,190 @@
   const pendingCommentEl = () => playbar.querySelector('.playbar-comment');
   const goBtnEl = () => playbar.querySelector('button[data-action="cue-go"]');
 
+  function ensureGoShield() {
+    if (goShieldEl) return;
+    const el = document.createElement('div');
+    el.className = 'editor-go-shield';
+    el.hidden = true;
+    el.setAttribute('aria-hidden', 'true');
+
+    const stop = (e) => {
+      if (!goHoldActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    el.addEventListener('pointerdown', stop, true);
+    el.addEventListener('pointermove', stop, true);
+    el.addEventListener('pointerup', stop, true);
+    el.addEventListener('click', stop, true);
+    el.addEventListener('wheel', stop, { passive: false, capture: true });
+
+    document.body.appendChild(el);
+    goShieldEl = el;
+  }
+
+  function ensureGoHoldBlockers() {
+    if (goHoldBlockersAttached) return;
+    goHoldBlockersAttached = true;
+
+    const block = (e) => {
+      if (!goHoldActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    document.addEventListener('touchstart', block, { capture: true, passive: false });
+    document.addEventListener('touchmove', block, { capture: true, passive: false });
+    document.addEventListener('touchend', block, { capture: true, passive: false });
+    document.addEventListener('touchcancel', block, { capture: true, passive: false });
+    document.addEventListener('selectionstart', block, true);
+    document.addEventListener('contextmenu', block, true);
+    window.addEventListener('scroll', (e) => {
+      if (!goHoldActive) return;
+      try { window.scrollTo(0, goHoldScrollY); } catch {}
+      e.preventDefault?.();
+    }, { passive: false });
+  }
+
+  function freezeScrollWhileHoldingGo() {
+    try {
+      goHoldScrollY = window.scrollY || window.pageYOffset || 0;
+    } catch {
+      goHoldScrollY = 0;
+    }
+
+    if (!goHoldBodyPrevStyle) {
+      goHoldBodyPrevStyle = {
+        position: document.body.style.position,
+        top: document.body.style.top,
+        left: document.body.style.left,
+        right: document.body.style.right,
+        width: document.body.style.width,
+        overflow: document.body.style.overflow
+      };
+    }
+
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${goHoldScrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function unfreezeScrollWhileHoldingGo() {
+    if (!goHoldBodyPrevStyle) return;
+    const prev = goHoldBodyPrevStyle;
+    goHoldBodyPrevStyle = null;
+    document.body.style.position = prev.position ?? '';
+    document.body.style.top = prev.top ?? '';
+    document.body.style.left = prev.left ?? '';
+    document.body.style.right = prev.right ?? '';
+    document.body.style.width = prev.width ?? '';
+    document.body.style.overflow = prev.overflow ?? '';
+    try { window.scrollTo(0, goHoldScrollY); } catch {}
+  }
+
+  function wireGoTriggerOnRelease() {
+    const btnGo = goBtnEl();
+    if (!btnGo) return;
+
+    const haptic = (kind) => {
+      // Best-effort only: iOS Safari often ignores vibration.
+      try {
+        const v = navigator?.vibrate;
+        if (typeof v !== 'function') return;
+        if (kind === 'press') v.call(navigator, 12);
+        if (kind === 'go') v.call(navigator, [18, 26, 18]);
+      } catch {}
+    };
+
+    const updateHoldInsideFromPoint = (x, y) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const r = btnGo.getBoundingClientRect();
+      const inside = (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+      goHoldInside = inside;
+      btnGo.classList.toggle('is-hold-outside', !inside);
+    };
+
+    const endHold = () => {
+      goHoldActive = false;
+      goHoldPointerId = null;
+      goHoldInside = false;
+      btnGo.classList.remove('is-hold');
+      btnGo.classList.remove('is-hold-outside');
+      document.documentElement.classList.remove('editor-go-hold-active');
+      if (goShieldEl) goShieldEl.hidden = true;
+      unfreezeScrollWhileHoldingGo();
+    };
+
+    btnGo.addEventListener('pointerdown', (e) => {
+      if (!playMode) return;
+      if (btnGo.disabled) return;
+      if (typeof e.button === 'number' && e.button !== 0) return;
+      if (goHoldActive) return;
+      e.preventDefault();
+
+      goHoldActive = true;
+      goHoldPointerId = e.pointerId;
+      goHoldInside = true;
+      ignoreGoClickUntil = Date.now() + 1500;
+      btnGo.classList.add('is-hold');
+      btnGo.classList.remove('is-hold-outside');
+      document.documentElement.classList.add('editor-go-hold-active');
+      ensureGoHoldBlockers();
+      ensureGoShield();
+      if (goShieldEl) goShieldEl.hidden = false;
+      freezeScrollWhileHoldingGo();
+      haptic('press');
+      try { btnGo.setPointerCapture(e.pointerId); } catch {}
+    }, { passive: false });
+
+    btnGo.addEventListener('pointermove', (e) => {
+      if (!goHoldActive) return;
+      if (goHoldPointerId != null && e.pointerId !== goHoldPointerId) return;
+      updateHoldInsideFromPoint(e.clientX, e.clientY);
+    }, { passive: true });
+
+    btnGo.addEventListener('pointercancel', () => {
+      if (!goHoldActive) return;
+      endHold();
+    });
+
+    btnGo.addEventListener('lostpointercapture', () => {
+      if (!goHoldActive) return;
+      endHold();
+    });
+
+    btnGo.addEventListener('pointerup', (e) => {
+      if (!goHoldActive) return;
+      if (goHoldPointerId != null && e.pointerId !== goHoldPointerId) return;
+      e.preventDefault();
+
+      updateHoldInsideFromPoint(e.clientX, e.clientY);
+      const releasedOnGo = goHoldInside;
+      endHold();
+
+      if (!releasedOnGo) return;
+      if (!playMode) return;
+      if (btnGo.disabled) return;
+      haptic('go');
+      triggerPendingCueAndAdvance();
+    }, { passive: false });
+
+    // Keep keyboard accessibility; ignore clicks emitted after pointer interactions.
+    btnGo.addEventListener('click', (e) => {
+      if (!playMode) return;
+      if (goHoldActive || Date.now() < ignoreGoClickUntil) {
+        e.preventDefault();
+        return;
+      }
+      e.preventDefault();
+      triggerPendingCueAndAdvance();
+    });
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     // Mount play UI first (top), then spacer, then controls at end of body.
     document.body.prepend(playbar);
@@ -115,6 +311,9 @@
     document.body.appendChild(controls);
 
     mountCueTocPanel();
+
+    // GO button: trigger on release (after playbar is mounted)
+    wireGoTriggerOnRelease();
 
     // Theme init
     try {
@@ -666,7 +865,8 @@
     const action = btn.getAttribute('data-action');
     if (action === 'cue-prev') gotoCueByDelta(-1);
     if (action === 'cue-next') gotoCueByDelta(1);
-    if (action === 'cue-go') triggerPendingCueAndAdvance();
+    // GO handled by pointer-trigger-on-release wiring.
+    if (action === 'cue-go') return;
   });
 
   playbar.addEventListener('input', () => {

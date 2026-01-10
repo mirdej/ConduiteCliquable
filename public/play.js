@@ -1,6 +1,17 @@
 (() => {
   const cfg = window.__PLAY__ || { oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' };
 
+  let goHoldActive = false;
+  let goHoldPointerId = null;
+  let ignoreGoClickUntil = 0;
+  let goHoldInside = false;
+  /** @type {HTMLDivElement | null} */
+  let goShieldEl = null;
+  let goHoldBlockersAttached = false;
+  let goHoldScrollY = 0;
+  /** @type {Partial<CSSStyleDeclaration> | null} */
+  let goHoldBodyPrevStyle = null;
+
   /** @type {HTMLElement[]} */
   let cues = [];
   let pendingIndex = -1;
@@ -45,6 +56,7 @@
 
     // Click any cue (or its comment badge) to make it the pending cue.
     document.addEventListener('click', (e) => {
+      if (goHoldActive) return;
       const t = /** @type {HTMLElement} */ (e.target);
       if (!t) return;
       // Don't steal interactions from UI chrome.
@@ -202,13 +214,110 @@
       gotoCueByDelta(1);
     });
 
-    btnGo?.addEventListener('click', async (e) => {
-      e.preventDefault();
-      await triggerPendingCueAndAdvance();
-    });
+    // GO: trigger-on-release (prevents false triggers on touch screens)
+    // - pointerdown arms + blocks UI interactions
+    // - pointerup triggers only if released on the button
+    if (btnGo) {
+      const haptic = (kind) => {
+        // Best-effort only: iOS Safari does not reliably support Vibration API.
+        try {
+          const v = navigator?.vibrate;
+          if (typeof v !== 'function') return;
+          if (kind === 'press') v.call(navigator, 12);
+          if (kind === 'go') v.call(navigator, [18, 26, 18]);
+        } catch {}
+      };
+
+      const updateHoldInsideFromPoint = (x, y) => {
+        if (!btnGo) return;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        const r = btnGo.getBoundingClientRect();
+        const inside = (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
+        goHoldInside = inside;
+        btnGo.classList.toggle('is-hold-outside', !inside);
+      };
+
+      btnGo.addEventListener('pointerdown', (e) => {
+        if (!btnGo || btnGo.disabled) return;
+        // Only the primary button/finger should arm.
+        if (typeof e.button === 'number' && e.button !== 0) return;
+        if (goHoldActive) return;
+        e.preventDefault();
+
+        goHoldActive = true;
+        goHoldPointerId = e.pointerId;
+        goHoldInside = true;
+        ignoreGoClickUntil = Date.now() + 1500;
+        btnGo.classList.add('is-hold');
+        btnGo.classList.remove('is-hold-outside');
+        document.body.classList.add('go-hold-active');
+        ensureGoHoldBlockers();
+        ensureGoShield();
+        if (goShieldEl) goShieldEl.hidden = false;
+        freezeScrollWhileHoldingGo();
+        haptic('press');
+        try { btnGo.setPointerCapture(e.pointerId); } catch {}
+      }, { passive: false });
+
+      // With pointer capture, we still receive moves even if the finger drifts.
+      btnGo.addEventListener('pointermove', (e) => {
+        if (!goHoldActive) return;
+        if (goHoldPointerId != null && e.pointerId !== goHoldPointerId) return;
+        updateHoldInsideFromPoint(e.clientX, e.clientY);
+      }, { passive: true });
+
+      const endHold = () => {
+        goHoldActive = false;
+        goHoldPointerId = null;
+        goHoldInside = false;
+        btnGo?.classList.remove('is-hold');
+        btnGo?.classList.remove('is-hold-outside');
+        document.body.classList.remove('go-hold-active');
+        if (goShieldEl) goShieldEl.hidden = true;
+        unfreezeScrollWhileHoldingGo();
+      };
+
+      btnGo.addEventListener('pointercancel', () => {
+        if (!goHoldActive) return;
+        endHold();
+      });
+
+      btnGo.addEventListener('lostpointercapture', () => {
+        if (!goHoldActive) return;
+        endHold();
+      });
+
+      btnGo.addEventListener('pointerup', async (e) => {
+        if (!btnGo || !goHoldActive) return;
+        if (goHoldPointerId != null && e.pointerId !== goHoldPointerId) return;
+        e.preventDefault();
+
+        // iOS reliability: use bounding-rect tracking instead of elementFromPoint.
+        updateHoldInsideFromPoint(e.clientX, e.clientY);
+        const releasedOnGo = goHoldInside;
+
+        endHold();
+        if (!releasedOnGo) return;
+        if (btnGo.disabled) return;
+        haptic('go');
+        await triggerPendingCueAndAdvance();
+      }, { passive: false });
+
+      // Keep keyboard accessibility: if a real keyboard "click" happens, still GO.
+      // Ignore synthetic clicks produced after pointer interactions.
+      btnGo.addEventListener('click', async (e) => {
+        if (goHoldActive || Date.now() < ignoreGoClickUntil) {
+          e.preventDefault();
+          return;
+        }
+        e.preventDefault();
+        await triggerPendingCueAndAdvance();
+      });
+    }
 
     // Optional: spacebar to GO (mobile won’t use this, but harmless)
     window.addEventListener('keydown', async (e) => {
+      if (goHoldActive) return;
       if (e.code === 'Space') {
         // avoid scrolling, and avoid triggering when typing in an input
         const active = document.activeElement;
@@ -222,6 +331,96 @@
     }, { passive: false });
 
     syncControlsEnabled();
+  }
+
+  function ensureGoShield() {
+    if (goShieldEl) return;
+    const el = document.createElement('div');
+    el.className = 'play-go-shield';
+    el.hidden = true;
+    el.setAttribute('aria-hidden', 'true');
+
+    const stop = (e) => {
+      if (!goHoldActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    // Block interactions (tap, click, drag, scroll) while GO is held.
+    el.addEventListener('pointerdown', stop, true);
+    el.addEventListener('pointermove', stop, true);
+    el.addEventListener('pointerup', stop, true);
+    el.addEventListener('click', stop, true);
+    el.addEventListener('wheel', stop, { passive: false, capture: true });
+
+    document.body.appendChild(el);
+    goShieldEl = el;
+  }
+
+  function ensureGoHoldBlockers() {
+    if (goHoldBlockersAttached) return;
+    goHoldBlockersAttached = true;
+
+    const block = (e) => {
+      if (!goHoldActive) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    // iOS Safari: touch drags can still scroll/select even with pointer capture.
+    // Block at the document level in the capture phase.
+    document.addEventListener('touchstart', block, { capture: true, passive: false });
+    document.addEventListener('touchmove', block, { capture: true, passive: false });
+    document.addEventListener('touchend', block, { capture: true, passive: false });
+    document.addEventListener('touchcancel', block, { capture: true, passive: false });
+    document.addEventListener('selectionstart', block, true);
+    document.addEventListener('contextmenu', block, true);
+    window.addEventListener('scroll', (e) => {
+      if (!goHoldActive) return;
+      // In case scroll still happens, snap back.
+      try { window.scrollTo(0, goHoldScrollY); } catch {}
+      e.preventDefault?.();
+    }, { passive: false });
+  }
+
+  function freezeScrollWhileHoldingGo() {
+    // Freeze the page to prevent iOS scroll rubber-banding + accidental text selection.
+    try {
+      goHoldScrollY = window.scrollY || window.pageYOffset || 0;
+    } catch {
+      goHoldScrollY = 0;
+    }
+
+    if (!goHoldBodyPrevStyle) {
+      goHoldBodyPrevStyle = {
+        position: document.body.style.position,
+        top: document.body.style.top,
+        left: document.body.style.left,
+        right: document.body.style.right,
+        width: document.body.style.width,
+        overflow: document.body.style.overflow
+      };
+    }
+
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${goHoldScrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function unfreezeScrollWhileHoldingGo() {
+    if (!goHoldBodyPrevStyle) return;
+    const prev = goHoldBodyPrevStyle;
+    goHoldBodyPrevStyle = null;
+    document.body.style.position = prev.position ?? '';
+    document.body.style.top = prev.top ?? '';
+    document.body.style.left = prev.left ?? '';
+    document.body.style.right = prev.right ?? '';
+    document.body.style.width = prev.width ?? '';
+    document.body.style.overflow = prev.overflow ?? '';
+    try { window.scrollTo(0, goHoldScrollY); } catch {}
   }
 
   function mountPendingInfoPanel() {
@@ -399,6 +598,7 @@
 
     // Close the TOC when tapping outside it (mobile friendly)
     document.addEventListener('pointerdown', (e) => {
+      if (goHoldActive) return;
       if (!panel.classList.contains('is-open')) return;
       const t = /** @type {HTMLElement} */ (e.target);
       if (tocTab && tocTab.contains(t)) return;

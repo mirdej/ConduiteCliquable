@@ -202,6 +202,56 @@ hr {
   backdrop-filter: blur(8px);
 }
 
+/* While GO is held, put the controls above everything so the shield can block all UI */
+body.go-hold-active .play-controls {
+  z-index: 1000002;
+}
+
+/* iOS/Safari: stop text selection, callouts, and highlight while holding GO */
+body.go-hold-active {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fullscreen interaction shield (blocks any UI interactions while GO is held) */
+.play-go-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  background: transparent;
+  touch-action: none;
+}
+
+/* Visual feedback: make GO big while pressed/held */
+.play-btn--go {
+  touch-action: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, width 120ms ease, font-size 120ms ease, padding 120ms ease;
+}
+
+.play-btn--go.is-hold {
+  position: fixed;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  transform: scale(1.55);
+  transform-origin: center bottom;
+  z-index: 1000001;
+  width: min(96vw, 760px);
+  padding: 24px 22px;
+  font-size: 38px;
+  letter-spacing: 0.08em;
+  border-radius: 22px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.55);
+}
+
+.play-btn--go.is-hold.is-hold-outside {
+  opacity: 0.72;
+  filter: saturate(0.85);
+}
+
 /* Pending cue info panel (above bottom controls) */
 .play-pending-panel {
   position: fixed;

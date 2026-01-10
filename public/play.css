@@ -1,6 +1,6 @@
 :root {
   --bg: #0f0f12;
-  --fg: #f2f2f2;
+  --fg: #9d9d9d;
   --muted: rgba(255, 255, 255, 0.65);
   --card: rgba(255, 255, 255, 0.08);
   --card2: rgba(255, 255, 255, 0.12);
@@ -53,6 +53,54 @@ hr {
   background: rgba(198, 178, 118, 0.88);
   color: #0a0a0a;
   user-select: none;
+  position: relative;
+}
+
+.cue-label.has-comment {
+  padding-right: 12px;
+}
+
+.play-comment-badge {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translate(8px, -50%);
+  max-width: min(70vw, 560px);
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  background: rgba(154, 202, 253, 0.86);
+  color: rgba(10, 10, 12, 0.92);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  z-index: 1;
+}
+
+.play-comment-badge-letter {
+  flex: 0 0 auto;
+}
+
+.play-comment-badge-text {
+  display: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.play-comment-badge-text.is-visible {
+  display: inline;
 }
 
 .cue-label.play-pending {
@@ -182,8 +230,50 @@ hr {
 }
 
 .play-toc-content {
+  flex: 1 1 auto;
   overflow: auto;
   padding: 0 10px 10px;
+}
+
+/* Mobile: TOC folds down from the top and takes all space above the play bar */
+@media (max-width: 900px) {
+  .play-toc {
+    --toc-handle: 60px;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    bottom: auto;
+    height: var(--toc-handle);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    transform: none;
+  }
+
+  .play-toc.is-open {
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    height: auto;
+    transform: none;
+  }
+
+  .play-toc-header {
+    padding: 10px;
+    background: rgba(20, 20, 22, 0.96);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    min-height: var(--toc-handle);
+  }
+
+  .play-toc-toggle {
+    width: auto;
+    padding: 0 14px;
+  }
+
+  /* Closed: only show the header/toggle (so it’s always visible) */
+  .play-toc:not(.is-open) .play-toc-content {
+    display: none;
+  }
 }
 
 .play-toc details {
@@ -228,33 +318,9 @@ hr {
   background: rgba(198, 178, 118, 0.22);
 }
 
-.play-toast {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 92px;
-  z-index: 999999;
-  background: rgba(0, 0, 0, 0.78);
-  color: var(--fg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 14px;
-  box-shadow: var(--shadow);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 160ms ease;
-}
-
-.play-toast.is-visible {
-  opacity: 1;
-}
 
 @media (prefers-reduced-motion: reduce) {
   .play-toc {
-    transition: none;
-  }
-  .play-toast {
     transition: none;
   }
 }

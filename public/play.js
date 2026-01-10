@@ -17,8 +17,6 @@
 
   /** @type {HTMLElement | null} */
   let tocPanel = null;
-  /** @type {HTMLElement | null} */
-  let toastEl = null;
 
   /** @type {WebSocket | null} */
   let ws = null;
@@ -28,9 +26,10 @@
     // Collect cues (read-only)
     cues = Array.from(document.querySelectorAll('.cue-label'));
 
+    addCommentBadges();
+
     mountControls();
     mountToc();
-    mountToast();
 
     // Initial pending cue
     const preset = document.querySelector('.cue-label.play-pending, .cue-label.cue-label--pending');
@@ -46,6 +45,38 @@
     // Live sync (pending cue + file changes)
     initWebSocket();
   });
+
+  function addCommentBadges() {
+    for (const cue of cues) {
+      const comment = String(cue?.dataset?.comment || '').trim();
+      const has = comment.length > 0;
+      cue.classList.toggle('has-comment', has);
+      if (!has) continue;
+
+      if (cue.querySelector('.play-comment-badge')) continue;
+      const badge = document.createElement('span');
+      badge.className = 'play-comment-badge';
+      badge.innerHTML = `<span class="play-comment-badge-letter" aria-hidden="true">C</span><span class="play-comment-badge-text"></span>`;
+      badge.setAttribute('aria-hidden', 'true');
+      badge.title = comment;
+      cue.appendChild(badge);
+    }
+
+    refreshCommentBadges();
+  }
+
+  function refreshCommentBadges() {
+    // Put the whole comment into the badge, but only show it for the pending cue
+    // to keep the page readable.
+    for (let i = 0; i < cues.length; i++) {
+      const cue = cues[i];
+      const comment = String(cue?.dataset?.comment || '').trim();
+      const textEl = cue.querySelector('.play-comment-badge-text');
+      if (!textEl) continue;
+      textEl.textContent = comment;
+      textEl.classList.toggle('is-visible', i === pendingIndex && comment.length > 0);
+    }
+  }
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -214,22 +245,6 @@
     if (first) first.open = true;
   }
 
-  function mountToast() {
-    const el = document.createElement('div');
-    el.className = 'play-toast';
-    el.setAttribute('role', 'status');
-    el.setAttribute('aria-live', 'polite');
-    document.body.appendChild(el);
-    toastEl = el;
-  }
-
-  function showToast(text) {
-    if (!toastEl) return;
-    toastEl.textContent = text;
-    toastEl.classList.add('is-visible');
-    window.setTimeout(() => toastEl?.classList.remove('is-visible'), 900);
-  }
-
   function cueName(cueEl) {
     const ds = /** @type {any} */ (cueEl.dataset || {});
     const name = String(ds.name || '').trim();
@@ -294,8 +309,9 @@
       el.classList.add('play-pending');
       tocButtonsByIndex.get(pendingIndex)?.classList.add('is-active');
       el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
-      showToast(cueName(el));
     }
+
+    refreshCommentBadges();
 
     // Broadcast pending cue selection to other clients.
     if (!suppressWsSend && ws && ws.readyState === ws.OPEN && pendingIndex >= 0 && cues[pendingIndex]) {
@@ -335,7 +351,7 @@
       cueEl.classList.add('play-triggered');
       tocButtonsByIndex.get(pendingIndex)?.classList.add('is-triggered');
     } catch (err) {
-      showToast('OSC send failed');
+      console.warn('OSC send failed', err);
       return;
     }
 

@@ -257,98 +257,58 @@ body.go-hold-active {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(84px + env(safe-area-inset-bottom));
+  bottom: var(--play-controls-height, 84px);
   z-index: 999998;
-  width: auto;
-  margin: 0;
-  background: rgba(10, 10, 12, 0.70);
-  border-top: 1px solid rgba(255, 255, 255, 0.10);
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  border-radius: 0;
-  box-shadow: none;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: rgba(10, 10, 12, 0.55);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(8px);
-  padding: 8px 12px;
-  font-size: 13px;
+  font-size: 12px;
+  transform: translateY(0);
+  transition: transform 160ms ease;
 }
 
-.play-pending-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 4px;
+.play-pending-panel.is-empty {
+  opacity: 0.85;
+}
+
+/* When GO is held (huge), slide the pending strip up so it never gets covered */
+body.go-hold-active .play-pending-panel {
+  transform: translateY(calc(-1 * var(--play-go-hold-lift, 140px)));
 }
 
 .play-pending-label {
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.68);
+  color: rgba(255, 255, 255, 0.62);
   font-size: 11px;
+  flex: 0 0 auto;
 }
 
 .play-pending-name {
   font-weight: 900;
   color: rgba(255, 255, 255, 0.84);
-  max-width: 72vw;
+  max-width: 46vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  flex: 0 0 auto;
 }
 
-.play-pending-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin: 6px 0;
-}
-
-.play-pending-field,
-.play-pending-comment {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.play-pending-comment {
-  align-items: flex-start;
-}
-
-.play-pending-field .k,
-.play-pending-comment .k {
+.play-pending-meta {
   color: rgba(255, 255, 255, 0.62);
   font-weight: 800;
-}
-
-.play-pending-field .v,
-.play-pending-comment .v {
-  color: rgba(255, 255, 255, 0.86);
-  font-weight: 900;
-  text-align: right;
-  min-width: 0;
-}
-
-.play-pending-comment .v {
-  flex: 1 1 auto;
-  text-align: left;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-@media (max-width: 900px) {
-  .play-pending-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .play-btn {

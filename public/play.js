@@ -200,6 +200,17 @@
     `;
     document.body.appendChild(bar);
 
+    const setControlsHeightVar = () => {
+      try {
+        const h = Math.round(bar.getBoundingClientRect().height);
+        document.documentElement.style.setProperty('--play-controls-height', `${h}px`);
+      } catch {
+        // ignore
+      }
+    };
+    setControlsHeightVar();
+    window.addEventListener('resize', setControlsHeightVar);
+
     btnPrev = bar.querySelector('button[data-action="prev"]');
     btnNext = bar.querySelector('button[data-action="next"]');
     btnGo = bar.querySelector('button[data-action="go"]');
@@ -256,6 +267,16 @@
         if (goShieldEl) goShieldEl.hidden = false;
         freezeScrollWhileHoldingGo();
         haptic('press');
+
+        // Ensure the pending strip slides up enough to never be covered by the huge GO.
+        requestAnimationFrame(() => {
+          try {
+            const r = btnGo.getBoundingClientRect();
+            const lift = Math.max(120, Math.round(r.height * 0.95));
+            document.documentElement.style.setProperty('--play-go-hold-lift', `${lift}px`);
+          } catch {}
+        });
+
         try { btnGo.setPointerCapture(e.pointerId); } catch {}
       }, { passive: false });
 
@@ -274,6 +295,7 @@
         btnGo?.classList.remove('is-hold-outside');
         document.body.classList.remove('go-hold-active');
         if (goShieldEl) goShieldEl.hidden = true;
+        try { document.documentElement.style.removeProperty('--play-go-hold-lift'); } catch {}
         unfreezeScrollWhileHoldingGo();
       };
 
@@ -427,20 +449,9 @@
     const panel = document.createElement('div');
     panel.className = 'play-pending-panel';
     panel.innerHTML = `
-      <div class="play-pending-header">
-        <span class="play-pending-label">Pending</span>
-        <span class="play-pending-name">(none)</span>
-      </div>
-      <div class="play-pending-grid" aria-label="Pending cue details">
-        <div class="play-pending-field"><span class="k">Light</span><span class="v" data-field="light">—</span></div>
-        <div class="play-pending-field"><span class="k">Video</span><span class="v" data-field="video">—</span></div>
-        <div class="play-pending-field"><span class="k">Audio</span><span class="v" data-field="audio">—</span></div>
-        <div class="play-pending-field"><span class="k">Tracker</span><span class="v" data-field="tracker">—</span></div>
-      </div>
-      <div class="play-pending-comment" aria-label="Pending cue comment">
-        <span class="k">Comment</span>
-        <span class="v" data-field="comment">—</span>
-      </div>
+      <span class="play-pending-label">Pending</span>
+      <span class="play-pending-name" aria-label="Pending cue">(none)</span>
+      <span class="play-pending-meta" aria-label="Pending cue details"></span>
     `;
     document.body.appendChild(panel);
     pendingPanel = panel;
@@ -517,26 +528,15 @@
     metaEl.textContent = parts.join('  ');
   }
 
-  function setPendingPanelValue(field, value) {
-    if (!pendingPanel) return;
-    const el = pendingPanel.querySelector(`[data-field="${field}"]`);
-    if (!el) return;
-    const v = String(value ?? '').trim();
-    el.textContent = v ? v : '—';
-  }
-
   function refreshPendingInfoPanel() {
     if (!pendingPanel) return;
     const nameEl = pendingPanel.querySelector('.play-pending-name');
+    const metaEl = pendingPanel.querySelector('.play-pending-meta');
 
     const cue = (pendingIndex >= 0 && pendingIndex < cues.length) ? cues[pendingIndex] : null;
     if (!cue) {
       if (nameEl) nameEl.textContent = '(none)';
-      setPendingPanelValue('light', '');
-      setPendingPanelValue('video', '');
-      setPendingPanelValue('audio', '');
-      setPendingPanelValue('tracker', '');
-      setPendingPanelValue('comment', '');
+      if (metaEl) metaEl.textContent = '';
       pendingPanel.classList.add('is-empty');
       return;
     }
@@ -547,11 +547,18 @@
     const name = cueName(cue);
     if (nameEl) nameEl.textContent = `${name} (${pendingIndex + 1}/${cues.length})`;
 
-    setPendingPanelValue('light', ds.light || '');
-    setPendingPanelValue('video', ds.video || '');
-    setPendingPanelValue('audio', ds.audio || '');
-    setPendingPanelValue('tracker', ds.tracker || '');
-    setPendingPanelValue('comment', ds.comment || '');
+    if (metaEl) {
+      const parts = [];
+      const light = String(ds.light || '').trim();
+      const video = String(ds.video || '').trim();
+      const audio = String(ds.audio || '').trim();
+      const tracker = String(ds.tracker || '').trim();
+      if (light) parts.push(`L:${light}`);
+      if (video) parts.push(`V:${video}`);
+      if (audio) parts.push(`A:${audio}`);
+      if (tracker) parts.push(`T:${tracker}`);
+      metaEl.textContent = parts.join('  ');
+    }
   }
 
   function mountToc() {

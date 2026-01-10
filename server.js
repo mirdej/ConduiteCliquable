@@ -20,6 +20,8 @@ const BACKUP_DIR = path.join(__dirname, 'backups');
 const OSC_HOST = process.env.OSC_HOST || '10.0.1.7';
 const OSC_PORT = Number(process.env.OSC_PORT || 9000);
 const OSC_IN_PORT = Number(process.env.OSC_IN_PORT || 9009);
+const OSC_CMD_DEDUP_MS = Number(process.env.OSC_CMD_DEDUP_MS || 180);
+const OSC_IN_LOG = process.env.OSC_IN_LOG === '1';
 
 /** @type {{ cueId: string, index: number }} */
 let sharedPending = { cueId: '', index: -1 };
@@ -91,6 +93,8 @@ function broadcastEditorCommand(cmd) {
 
 // OSC inbound listener (e.g. /go /prev /next)
 let oscInReady = false;
+/** @type {Map<string, number>} */
+const lastOscCmdAtMs = new Map();
 const oscInPort = new osc.UDPPort({
   localAddress: '0.0.0.0',
   localPort: OSC_IN_PORT
@@ -106,6 +110,16 @@ oscInPort.on('error', (err) => {
 oscInPort.on('message', (msg) => {
   const address = String(msg?.address || '');
   const a = address.replace(/\/+$/, '');
+
+  // Some OSC senders can emit duplicate messages (bundles, retries, button bounce).
+  // Deduplicate by normalized address within a small time window.
+  const now = Date.now();
+  const last = lastOscCmdAtMs.get(a) || 0;
+  if (OSC_CMD_DEDUP_MS > 0 && now - last < OSC_CMD_DEDUP_MS) return;
+  lastOscCmdAtMs.set(a, now);
+
+  if (OSC_IN_LOG) console.log(`[OSC IN] ${a}`);
+
   if (a === '/go') broadcastEditorCommand('go');
   else if (a === '/prev') broadcastEditorCommand('prev');
   else if (a === '/next') broadcastEditorCommand('next');
@@ -310,6 +324,12 @@ server.listen(PORT, HOST, () => {
 
 function injectEditor(html) {
   const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
+
+  // Idempotent injection: avoid duplicating scripts/styles if the source HTML already contains them.
+  if (/\/static\/editor\.js\b/i.test(html) || /window\.__EDITOR__\b/i.test(html) || /\/static\/editor\.css\b/i.test(html)) {
+    return html;
+  }
+
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${toolbar}\n</body>`);
   }
@@ -321,6 +341,12 @@ function injectEditor(html) {
 
 function injectPlay(html) {
   const payload = `\n<link rel=\"stylesheet\" href=\"/static/play.css\">\n<script>window.__PLAY__ = { oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' }<\/script>\n<script src=\"/static/play.js\" defer><\/script>`;
+
+  // Idempotent injection: avoid duplicating scripts/styles if the source HTML already contains them.
+  if (/\/static\/play\.js\b/i.test(html) || /window\.__PLAY__\b/i.test(html) || /\/static\/play\.css\b/i.test(html)) {
+    return html;
+  }
+
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${payload}\n</body>`);
   }

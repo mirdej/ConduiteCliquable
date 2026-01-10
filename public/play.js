@@ -383,7 +383,11 @@
 
   function wireRemoteControl() {
     try {
+      const prev = window.__LCDC_PLAY_EVENTS__;
+      try { prev?.close?.(); } catch {}
+
       const es = new EventSource(cfg.eventsUrl || '/events');
+      window.__LCDC_PLAY_EVENTS__ = es;
       es.addEventListener('message', async (ev) => {
         let data;
         try { data = JSON.parse(ev.data); } catch { return; }
@@ -396,6 +400,10 @@
         } else if (cmd === 'next') {
           gotoCueByDelta(1);
         }
+      });
+
+      window.addEventListener('beforeunload', () => {
+        try { es.close(); } catch {}
       });
     } catch {
       // ignore

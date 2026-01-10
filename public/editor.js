@@ -158,7 +158,13 @@
 
     // Remote control (OSC -> server -> SSE)
     try {
+      // Defensive: avoid multiple active EventSource connections if this script
+      // is ever loaded twice (or hot-reloaded by the browser).
+      const prev = window.__LCDC_EDITOR_EVENTS__;
+      try { prev?.close?.(); } catch {}
+
       const es = new EventSource(cfg.eventsUrl || '/events');
+      window.__LCDC_EDITOR_EVENTS__ = es;
       es.addEventListener('message', (ev) => {
         let data;
         try { data = JSON.parse(ev.data); } catch { return; }
@@ -175,6 +181,10 @@
         if (cmd === 'next') {
           gotoCueByDelta(1);
         }
+      });
+
+      window.addEventListener('beforeunload', () => {
+        try { es.close(); } catch {}
       });
     } catch {
       // ignore

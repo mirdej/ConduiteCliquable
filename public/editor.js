@@ -170,15 +170,18 @@
         try { data = JSON.parse(ev.data); } catch { return; }
         const cmd = String(data?.cmd || '');
         if (cmd === 'go') {
+          if (!playMode) return;
           // Match the GO button behavior: ignore if GO is disabled.
           const go = goBtnEl();
           if (go?.disabled) return;
           triggerPendingCueAndAdvance();
         }
         if (cmd === 'prev') {
+          if (!playMode) return;
           gotoCueByDelta(-1);
         }
         if (cmd === 'next') {
+          if (!playMode) return;
           gotoCueByDelta(1);
         }
       });
@@ -223,6 +226,8 @@
       }
 
       if (type === 'state' || type === 'pending') {
+        // In Edit mode, don't follow the shared pending cue.
+        if (!playMode) return;
         const pending = msg?.pending || {};
         const cueId = String(pending?.cueId || '');
         const index = Number.isFinite(pending?.index) ? Number(pending.index) : -1;
@@ -1102,7 +1107,7 @@
     if (pendingCueEl) pendingCueEl.classList.add('cue-label--pending');
 
     // Broadcast shared pending cue (play mode + editor playbar).
-    if (!suppressWsSend && ws && ws.readyState === ws.OPEN) {
+    if (playMode && !suppressWsSend && ws && ws.readyState === ws.OPEN) {
       try {
         const cues = getCueLabels();
         const idx = pendingCueEl ? cues.indexOf(pendingCueEl) : -1;
@@ -1147,8 +1152,20 @@
     setPendingCue(cues[nextIdx]);
   }
 
+  // Guard against duplicate GO triggers (OSC/SSE duplicates, key repeat, double taps).
+  let goInFlight = false;
+  let lastGoAtMs = 0;
+  const GO_COOLDOWN_MS = 250;
+
   function triggerPendingCueAndAdvance() {
     if (!pendingCueEl) return;
+
+    const now = Date.now();
+    if (goInFlight) return;
+    if (GO_COOLDOWN_MS > 0 && now - lastGoAtMs < GO_COOLDOWN_MS) return;
+    goInFlight = true;
+    lastGoAtMs = now;
+
     const payload = {
       name: pendingCueEl.dataset.name || '',
       light: pendingCueEl.dataset.light || '',
@@ -1185,6 +1202,10 @@
     const cues = getCueLabels();
     const idx = cues.indexOf(pendingCueEl);
     if (idx >= 0 && idx + 1 < cues.length) setPendingCue(cues[idx + 1]);
+
+    window.setTimeout(() => {
+      goInFlight = false;
+    }, GO_COOLDOWN_MS);
   }
 
   // Cue click selects pending cue in play mode

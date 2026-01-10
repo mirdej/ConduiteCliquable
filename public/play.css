@@ -192,14 +192,36 @@ hr {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
-  transform: translateX(calc(100% - 56px));
-  transition: transform 180ms ease;
+  transform: translateX(calc(100% + 20px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 180ms ease, opacity 180ms ease;
   display: flex;
   flex-direction: column;
 }
 
 .play-toc.is-open {
   transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.play-toc-tab {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 999999;
+  appearance: none;
+  border: none;
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--fg);
+  height: 44px;
+  width: 56px;
+  border-radius: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow: var(--shadow);
 }
 
 .play-toc-toggle {
@@ -238,31 +260,26 @@ hr {
 /* Mobile: TOC folds down from the top and takes all space above the play bar */
 @media (max-width: 900px) {
   .play-toc {
-    --toc-handle: 60px;
     top: 0;
     left: 0;
     right: 0;
     width: auto;
-    bottom: auto;
-    height: var(--toc-handle);
     border-radius: 0;
     border-left: none;
     border-right: none;
     border-top: none;
-    transform: none;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    transform: translateY(-110%);
   }
 
   .play-toc.is-open {
-    bottom: calc(74px + env(safe-area-inset-bottom));
-    height: auto;
-    transform: none;
+    transform: translateY(0);
   }
 
   .play-toc-header {
     padding: 10px;
     background: rgba(20, 20, 22, 0.96);
     border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-    min-height: var(--toc-handle);
   }
 
   .play-toc-toggle {
@@ -270,10 +287,6 @@ hr {
     padding: 0 14px;
   }
 
-  /* Closed: only show the header/toggle (so it’s always visible) */
-  .play-toc:not(.is-open) .play-toc-content {
-    display: none;
-  }
 }
 
 .play-toc details {

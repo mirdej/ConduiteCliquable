@@ -20,7 +20,7 @@ const BACKUP_DIR = path.join(__dirname, 'backups');
 const OSC_HOST = process.env.OSC_HOST || '10.0.1.7';
 const OSC_PORT = Number(process.env.OSC_PORT || 9000);
 const OSC_IN_PORT = Number(process.env.OSC_IN_PORT || 9009);
-const OSC_CMD_DEDUP_MS = Number(process.env.OSC_CMD_DEDUP_MS || 300);
+const OSC_CMD_DEDUP_MS = 2000;//Number(process.env.OSC_CMD_DEDUP_MS || 300);
 const OSC_IN_LOG = process.env.OSC_IN_LOG === '1';
 
 /** @type {{ cueId: string, index: number }} */

@@ -18,6 +18,9 @@
   /** @type {HTMLElement | null} */
   let tocPanel = null;
 
+  /** @type {HTMLButtonElement | null} */
+  let tocTab = null;
+
   /** @type {WebSocket | null} */
   let ws = null;
   let suppressWsSend = false;
@@ -178,6 +181,15 @@
   }
 
   function mountToc() {
+    const tab = document.createElement('button');
+    tab.className = 'play-toc-tab';
+    tab.type = 'button';
+    tab.setAttribute('aria-label', 'Open table of contents');
+    tab.setAttribute('title', 'TOC');
+    tab.textContent = 'TOC';
+    document.body.appendChild(tab);
+    tocTab = tab;
+
     const panel = document.createElement('aside');
     panel.className = 'play-toc';
     panel.innerHTML = `
@@ -193,16 +205,30 @@
     const toggle = panel.querySelector('.play-toc-toggle');
     const content = panel.querySelector('.play-toc-content');
 
+    const setTocOpen = (open) => {
+      panel.classList.toggle('is-open', Boolean(open));
+      if (tocTab) tocTab.hidden = Boolean(open);
+      if (toggle) toggle.setAttribute('aria-expanded', String(Boolean(open)));
+      if (tocTab) tocTab.setAttribute('aria-expanded', String(Boolean(open)));
+    };
+
+    setTocOpen(false);
+
     toggle?.addEventListener('click', () => {
-      panel.classList.toggle('is-open');
+      setTocOpen(!panel.classList.contains('is-open'));
+    });
+
+    tab.addEventListener('click', () => {
+      setTocOpen(true);
     });
 
     // Close the TOC when tapping outside it (mobile friendly)
     document.addEventListener('pointerdown', (e) => {
       if (!panel.classList.contains('is-open')) return;
       const t = /** @type {HTMLElement} */ (e.target);
+      if (tocTab && tocTab.contains(t)) return;
       if (panel.contains(t)) return;
-      panel.classList.remove('is-open');
+      setTocOpen(false);
     });
 
     // Build sectioned TOC based on cue-separator elements
@@ -340,10 +366,21 @@
     setPending(next);
   }
 
+  // Guard against duplicate GO triggers (OSC/SSE duplicates, key repeat, double taps).
+  let goInFlight = false;
+  let lastGoAtMs = 0;
+  const GO_COOLDOWN_MS = 250;
+
   async function triggerPendingCueAndAdvance() {
     if (!cues.length) return;
     if (pendingIndex < 0) setPending(0);
     if (pendingIndex < 0) return;
+
+     const now = Date.now();
+     if (goInFlight) return;
+     if (GO_COOLDOWN_MS > 0 && now - lastGoAtMs < GO_COOLDOWN_MS) return;
+     goInFlight = true;
+     lastGoAtMs = now;
 
     const cueEl = cues[pendingIndex];
     try {
@@ -353,6 +390,11 @@
     } catch (err) {
       console.warn('OSC send failed', err);
       return;
+    } finally {
+      // Keep a small cooldown even after completion; helps with back-to-back duplicates.
+      window.setTimeout(() => {
+        goInFlight = false;
+      }, GO_COOLDOWN_MS);
     }
 
     // advance

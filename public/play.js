@@ -1,5 +1,5 @@
 (() => {
-  const cfg = window.__PLAY__ || { oscGoUrl: '/osc/go', eventsUrl: '/events' };
+  const cfg = window.__PLAY__ || { oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' };
 
   /** @type {HTMLElement[]} */
   let cues = [];
@@ -20,6 +20,10 @@
   /** @type {HTMLElement | null} */
   let toastEl = null;
 
+  /** @type {WebSocket | null} */
+  let ws = null;
+  let suppressWsSend = false;
+
   window.addEventListener('DOMContentLoaded', () => {
     // Collect cues (read-only)
     cues = Array.from(document.querySelectorAll('.cue-label'));
@@ -38,7 +42,63 @@
     }
 
     wireRemoteControl();
+
+    // Live sync (pending cue + file changes)
+    initWebSocket();
   });
+
+  function wsUrl() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path = String(cfg.wsPath || '/ws');
+    return `${proto}//${location.host}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+
+  function initWebSocket() {
+    try {
+      ws = new WebSocket(wsUrl());
+    } catch {
+      ws = null;
+      return;
+    }
+
+    ws.addEventListener('message', (ev) => {
+      let msg;
+      try { msg = JSON.parse(String(ev.data || '')); } catch { return; }
+      const type = String(msg?.type || '');
+
+      if (type === 'fileUpdated') {
+        // Simplest + safest: reload to fetch the new HTML.
+        // Debounce by letting the browser coalesce multiple updates.
+        window.setTimeout(() => location.reload(), 50);
+        return;
+      }
+
+      if (type === 'state' || type === 'pending') {
+        const pending = msg?.pending || {};
+        const cueId = String(pending?.cueId || '');
+        const index = Number.isFinite(pending?.index) ? Number(pending.index) : -1;
+
+        suppressWsSend = true;
+        try {
+          if (cueId) {
+            const idx = cues.findIndex((c) => String(c?.dataset?.cueId || '') === cueId);
+            if (idx >= 0) setPending(idx);
+            else if (index >= 0) setPending(Math.max(0, Math.min(cues.length - 1, index)));
+          } else if (index >= 0) {
+            setPending(Math.max(0, Math.min(cues.length - 1, index)));
+          }
+        } finally {
+          suppressWsSend = false;
+        }
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      ws = null;
+      // best-effort reconnect
+      window.setTimeout(initWebSocket, 1000);
+    });
+  }
 
   function mountControls() {
     const bar = document.createElement('div');
@@ -235,6 +295,16 @@
       tocButtonsByIndex.get(pendingIndex)?.classList.add('is-active');
       el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
       showToast(cueName(el));
+    }
+
+    // Broadcast pending cue selection to other clients.
+    if (!suppressWsSend && ws && ws.readyState === ws.OPEN && pendingIndex >= 0 && cues[pendingIndex]) {
+      const cueId = String(cues[pendingIndex]?.dataset?.cueId || '');
+      try {
+        ws.send(JSON.stringify({ type: 'setPending', cueId, index: pendingIndex, ts: Date.now() }));
+      } catch {
+        // ignore
+      }
     }
 
     syncControlsEnabled();

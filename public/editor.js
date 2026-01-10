@@ -4,7 +4,8 @@
     saveHtmlUrl: '/saveHtml',
     backupUrl: '/backup',
     oscGoUrl: '/osc/go',
-    eventsUrl: '/events'
+    eventsUrl: '/events',
+    wsPath: '/ws'
   };
 
   // Default to Play mode on load.
@@ -38,6 +39,10 @@
   let lastTriggeredCueId = '';
   /** @type {Record<string, boolean>} */
   let collapsedSections = {};
+
+  /** @type {WebSocket | null} */
+  let ws = null;
+  let suppressWsSend = false;
 
   // Controls (bottom-right)
   const controls = document.createElement('div');
@@ -174,7 +179,67 @@
     } catch {
       // ignore
     }
+
+    initWebSocket();
   });
+
+  function wsUrl() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path = String(cfg.wsPath || '/ws');
+    return `${proto}//${location.host}${path.startsWith('/') ? '' : '/'}${path}`;
+  }
+
+  function initWebSocket() {
+    try {
+      ws = new WebSocket(wsUrl());
+    } catch {
+      ws = null;
+      return;
+    }
+
+    ws.addEventListener('message', (ev) => {
+      let msg;
+      try { msg = JSON.parse(String(ev.data || '')); } catch { return; }
+      const type = String(msg?.type || '');
+
+      if (type === 'fileUpdated') {
+        // Avoid clobbering edits: only auto-reload when not in edit mode.
+        if (!editMode) {
+          window.setTimeout(() => location.reload(), 50);
+        } else {
+          setStatus('File changed on server');
+        }
+        return;
+      }
+
+      if (type === 'state' || type === 'pending') {
+        const pending = msg?.pending || {};
+        const cueId = String(pending?.cueId || '');
+        const index = Number.isFinite(pending?.index) ? Number(pending.index) : -1;
+
+        const cues = getCueLabels();
+        let target = null;
+        if (cueId) {
+          target = document.querySelector(`.cue-label[data-cue-id="${cssEscape(cueId)}"]`);
+        }
+        if (!target && index >= 0 && index < cues.length) target = cues[index];
+
+        if (target) {
+          suppressWsSend = true;
+          try {
+            setPendingCue(target, { scroll: false });
+          } finally {
+            suppressWsSend = false;
+          }
+        }
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      ws = null;
+      window.setTimeout(initWebSocket, 1000);
+    });
+  }
 
   function applySpacebarGoShortcutUi() {
     const b = spacebarGoBtnEl();
@@ -1025,6 +1090,18 @@
     if (pendingCueEl) pendingCueEl.classList.remove('cue-label--pending');
     pendingCueEl = el;
     if (pendingCueEl) pendingCueEl.classList.add('cue-label--pending');
+
+    // Broadcast shared pending cue (play mode + editor playbar).
+    if (!suppressWsSend && ws && ws.readyState === ws.OPEN) {
+      try {
+        const cues = getCueLabels();
+        const idx = pendingCueEl ? cues.indexOf(pendingCueEl) : -1;
+        const cueId = pendingCueEl?.dataset?.cueId || '';
+        ws.send(JSON.stringify({ type: 'setPending', cueId, index: idx, ts: Date.now() }));
+      } catch {
+        // ignore
+      }
+    }
 
     const label = pendingLabelEl();
     if (!pendingCueEl) {

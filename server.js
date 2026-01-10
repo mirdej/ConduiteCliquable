@@ -1,9 +1,12 @@
 import express from 'express';
 import fs from 'fs/promises';
+import fsSync from 'fs';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { JSDOM } from 'jsdom';
 import osc from 'osc';
+import { WebSocketServer } from 'ws';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +20,44 @@ const BACKUP_DIR = path.join(__dirname, 'backups');
 const OSC_HOST = process.env.OSC_HOST || '10.0.1.7';
 const OSC_PORT = Number(process.env.OSC_PORT || 9000);
 const OSC_IN_PORT = Number(process.env.OSC_IN_PORT || 9009);
+
+/** @type {{ cueId: string, index: number }} */
+let sharedPending = { cueId: '', index: -1 };
+
+let fileMtimeMs = 0;
+let fileWatchDebounce = null;
+
+/** @type {Set<import('ws').WebSocket>} */
+const wsClients = new Set();
+
+function wsBroadcast(msg) {
+  const payload = JSON.stringify(msg);
+  for (const ws of wsClients) {
+    if (ws.readyState !== ws.OPEN) continue;
+    try {
+      ws.send(payload);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function refreshFileMtime() {
+  try {
+    const st = await fs.stat(TARGET_FILE);
+    fileMtimeMs = Number(st.mtimeMs || 0);
+  } catch {
+    // ignore
+  }
+}
+
+function scheduleFileUpdatedBroadcast(reason = 'unknown') {
+  if (fileWatchDebounce) clearTimeout(fileWatchDebounce);
+  fileWatchDebounce = setTimeout(async () => {
+    await refreshFileMtime();
+    wsBroadcast({ type: 'fileUpdated', reason, mtimeMs: fileMtimeMs, ts: Date.now() });
+  }, 150);
+}
 
 /** @type {Set<import('express').Response>} */
 const sseClients = new Set();
@@ -146,6 +187,7 @@ app.post('/save', async (req, res) => {
 
     const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
     await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');
+    scheduleFileUpdatedBroadcast('save');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -181,6 +223,7 @@ app.post('/saveHtml', async (req, res) => {
 
     const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
     await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');
+    scheduleFileUpdatedBroadcast('saveHtml');
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -210,14 +253,63 @@ app.post('/osc/go', (req, res) => {
   }
 });
 
-app.listen(PORT, HOST, () => {
+// Create HTTP server so WebSocket can share the same port.
+const server = http.createServer(app);
+
+// WebSocket endpoint for live updates + shared pending cue state.
+const wss = new WebSocketServer({ server, path: '/ws' });
+wss.on('connection', async (ws) => {
+  wsClients.add(ws);
+  await refreshFileMtime();
+  try {
+    ws.send(JSON.stringify({ type: 'state', pending: sharedPending, mtimeMs: fileMtimeMs, ts: Date.now() }));
+  } catch {
+    // ignore
+  }
+
+  ws.on('message', (data) => {
+    let msg;
+    try {
+      msg = JSON.parse(String(data || ''));
+    } catch {
+      return;
+    }
+
+    const type = String(msg?.type || '');
+    if (type === 'setPending') {
+      const cueId = String(msg?.cueId || '');
+      const index = Number.isFinite(msg?.index) ? Number(msg.index) : -1;
+      sharedPending = { cueId, index };
+      wsBroadcast({ type: 'pending', pending: sharedPending, ts: Date.now() });
+    }
+  });
+
+  ws.on('close', () => {
+    wsClients.delete(ws);
+  });
+
+  ws.on('error', () => {
+    wsClients.delete(ws);
+  });
+});
+
+// Best-effort file watcher for external edits.
+try {
+  fsSync.watch(TARGET_FILE, { persistent: false }, () => {
+    scheduleFileUpdatedBroadcast('watch');
+  });
+} catch {
+  // ignore
+}
+
+server.listen(PORT, HOST, () => {
   console.log(`Editor server listening on http://${HOST}:${PORT}/edit`);
   console.log(`Open from another device: http://<this-mac-LAN-IP>:${PORT}/edit`);
   console.log(`Play mode: http://<this-mac-LAN-IP>:${PORT}/play`);
 });
 
 function injectEditor(html) {
-  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go', eventsUrl: '/events' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
+  const toolbar = `\n<link rel=\"stylesheet\" href=\"/static/editor.css\">\n<script>window.__EDITOR__ = { saveUrl: '/save', saveHtmlUrl: '/saveHtml', backupUrl: '/backup', oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' }<\/script>\n<script src=\"/static/editor.js\" defer><\/script>`;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${toolbar}\n</body>`);
   }
@@ -228,7 +320,7 @@ function injectEditor(html) {
 }
 
 function injectPlay(html) {
-  const payload = `\n<link rel=\"stylesheet\" href=\"/static/play.css\">\n<script>window.__PLAY__ = { oscGoUrl: '/osc/go', eventsUrl: '/events' }<\/script>\n<script src=\"/static/play.js\" defer><\/script>`;
+  const payload = `\n<link rel=\"stylesheet\" href=\"/static/play.css\">\n<script>window.__PLAY__ = { oscGoUrl: '/osc/go', eventsUrl: '/events', wsPath: '/ws' }<\/script>\n<script src=\"/static/play.js\" defer><\/script>`;
   if (/<\/body>/i.test(html)) {
     return html.replace(/<\/body>/i, `${payload}\n</body>`);
   }

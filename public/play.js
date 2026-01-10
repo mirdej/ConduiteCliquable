@@ -34,6 +34,21 @@
     mountControls();
     mountToc();
 
+    // Click any cue (or its comment badge) to make it the pending cue.
+    document.addEventListener('click', (e) => {
+      const t = /** @type {HTMLElement} */ (e.target);
+      if (!t) return;
+      // Don't steal interactions from UI chrome.
+      if (t.closest('.play-controls, .play-toc, .play-toc-tab')) return;
+
+      const cue = t.closest('.cue-label');
+      if (!cue) return;
+      const idx = cues.indexOf(/** @type {HTMLElement} */ (cue));
+      if (idx < 0) return;
+      e.preventDefault();
+      setPending(idx);
+    }, true);
+
     // Initial pending cue
     const preset = document.querySelector('.cue-label.play-pending, .cue-label.cue-label--pending');
     if (preset && preset.classList.contains('cue-label')) {

@@ -54,6 +54,7 @@ hr {
   color: #0a0a0a;
   user-select: none;
   position: relative;
+  cursor: pointer;
 }
 
 .cue-label.has-comment {

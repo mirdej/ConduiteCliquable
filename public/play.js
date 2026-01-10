@@ -21,6 +21,9 @@
   /** @type {HTMLButtonElement | null} */
   let tocTab = null;
 
+  /** @type {HTMLElement | null} */
+  let pendingPanel = null;
+
   /** @type {WebSocket | null} */
   let ws = null;
   let suppressWsSend = false;
@@ -30,6 +33,8 @@
     cues = Array.from(document.querySelectorAll('.cue-label'));
 
     addCommentBadges();
+
+    mountPendingInfoPanel();
 
     mountControls();
     mountToc();
@@ -195,6 +200,67 @@
     syncControlsEnabled();
   }
 
+  function mountPendingInfoPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'play-pending-panel';
+    panel.innerHTML = `
+      <div class="play-pending-header">
+        <span class="play-pending-label">Pending</span>
+        <span class="play-pending-name">(none)</span>
+      </div>
+      <div class="play-pending-grid" aria-label="Pending cue details">
+        <div class="play-pending-field"><span class="k">Light</span><span class="v" data-field="light">—</span></div>
+        <div class="play-pending-field"><span class="k">Video</span><span class="v" data-field="video">—</span></div>
+        <div class="play-pending-field"><span class="k">Audio</span><span class="v" data-field="audio">—</span></div>
+        <div class="play-pending-field"><span class="k">Tracker</span><span class="v" data-field="tracker">—</span></div>
+      </div>
+      <div class="play-pending-comment" aria-label="Pending cue comment">
+        <span class="k">Comment</span>
+        <span class="v" data-field="comment">—</span>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    pendingPanel = panel;
+    refreshPendingInfoPanel();
+  }
+
+  function setPendingPanelValue(field, value) {
+    if (!pendingPanel) return;
+    const el = pendingPanel.querySelector(`[data-field="${field}"]`);
+    if (!el) return;
+    const v = String(value ?? '').trim();
+    el.textContent = v ? v : '—';
+  }
+
+  function refreshPendingInfoPanel() {
+    if (!pendingPanel) return;
+    const nameEl = pendingPanel.querySelector('.play-pending-name');
+
+    const cue = (pendingIndex >= 0 && pendingIndex < cues.length) ? cues[pendingIndex] : null;
+    if (!cue) {
+      if (nameEl) nameEl.textContent = '(none)';
+      setPendingPanelValue('light', '');
+      setPendingPanelValue('video', '');
+      setPendingPanelValue('audio', '');
+      setPendingPanelValue('tracker', '');
+      setPendingPanelValue('comment', '');
+      pendingPanel.classList.add('is-empty');
+      return;
+    }
+
+    pendingPanel.classList.remove('is-empty');
+
+    const ds = /** @type {any} */ (cue.dataset || {});
+    const name = cueName(cue);
+    if (nameEl) nameEl.textContent = `${name} (${pendingIndex + 1}/${cues.length})`;
+
+    setPendingPanelValue('light', ds.light || '');
+    setPendingPanelValue('video', ds.video || '');
+    setPendingPanelValue('audio', ds.audio || '');
+    setPendingPanelValue('tracker', ds.tracker || '');
+    setPendingPanelValue('comment', ds.comment || '');
+  }
+
   function mountToc() {
     const tab = document.createElement('button');
     tab.className = 'play-toc-tab';
@@ -353,6 +419,7 @@
     }
 
     refreshCommentBadges();
+    refreshPendingInfoPanel();
 
     // Broadcast pending cue selection to other clients.
     if (!suppressWsSend && ws && ws.readyState === ws.OPEN && pendingIndex >= 0 && cues[pendingIndex]) {

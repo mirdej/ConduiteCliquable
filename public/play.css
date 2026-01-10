@@ -20,7 +20,7 @@ body {
   color: var(--fg);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   line-height: 1.55;
-  padding: 18px 14px 120px;
+  padding: 18px 14px 190px;
 }
 
 /* Make the raw script readable on mobile */
@@ -143,6 +143,105 @@ hr {
   background: rgba(10, 10, 12, 0.86);
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(8px);
+}
+
+/* Pending cue info panel (above bottom controls) */
+.play-pending-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 999998;
+  width: auto;
+  margin: 0;
+  background: rgba(10, 10, 12, 0.70);
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.play-pending-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.play-pending-label {
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 11px;
+}
+
+.play-pending-name {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.84);
+  max-width: 72vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.play-pending-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.play-pending-field,
+.play-pending-comment {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.play-pending-comment {
+  align-items: flex-start;
+}
+
+.play-pending-field .k,
+.play-pending-comment .k {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 800;
+}
+
+.play-pending-field .v,
+.play-pending-comment .v {
+  color: rgba(255, 255, 255, 0.86);
+  font-weight: 900;
+  text-align: right;
+  min-width: 0;
+}
+
+.play-pending-comment .v {
+  flex: 1 1 auto;
+  text-align: left;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+@media (max-width: 900px) {
+  .play-pending-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .play-btn {

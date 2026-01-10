@@ -87,6 +87,17 @@ app.get('/edit', async (req, res) => {
   }
 });
 
+app.get('/play', async (req, res) => {
+  try {
+    const html = await fs.readFile(TARGET_FILE, 'utf8');
+    const injected = injectPlay(html);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(injected);
+  } catch (err) {
+    res.status(500).send(`<pre>Error reading file: ${err.message}</pre>`);
+  }
+});
+
 // Server-Sent Events stream for remote control commands
 app.get('/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
@@ -202,6 +213,7 @@ app.post('/osc/go', (req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`Editor server listening on http://${HOST}:${PORT}/edit`);
   console.log(`Open from another device: http://<this-mac-LAN-IP>:${PORT}/edit`);
+  console.log(`Play mode: http://<this-mac-LAN-IP>:${PORT}/play`);
 });
 
 function injectEditor(html) {
@@ -213,6 +225,17 @@ function injectEditor(html) {
     return html.replace(/<\/head>/i, `${toolbar}\n</head>`);
   }
   return html + toolbar;
+}
+
+function injectPlay(html) {
+  const payload = `\n<link rel=\"stylesheet\" href=\"/static/play.css\">\n<script>window.__PLAY__ = { oscGoUrl: '/osc/go', eventsUrl: '/events' }<\/script>\n<script src=\"/static/play.js\" defer><\/script>`;
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${payload}\n</body>`);
+  }
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${payload}\n</head>`);
+  }
+  return html + payload;
 }
 
 function getNodeByPath(document, pathArr) {

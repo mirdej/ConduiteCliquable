@@ -154,7 +154,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-left: 10px;
 }
 .editor-toc-item:hover {
   background: rgba(255,255,255,0.14);

@@ -1184,6 +1184,8 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          cueId: pendingCueEl?.dataset?.cueId || '',
+          name: pendingCueEl?.dataset?.name || '',
           light: payload.light,
           video: payload.video,
           audio: payload.audio,

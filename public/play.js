@@ -24,6 +24,9 @@
   /** @type {HTMLElement | null} */
   let pendingPanel = null;
 
+  /** @type {HTMLElement | null} */
+  let lastTriggeredPanel = null;
+
   /** @type {WebSocket | null} */
   let ws = null;
   let suppressWsSend = false;
@@ -34,6 +37,7 @@
 
     addCommentBadges();
 
+    mountLastTriggeredPanel();
     mountPendingInfoPanel();
 
     mountControls();
@@ -145,6 +149,26 @@
           suppressWsSend = false;
         }
       }
+
+      if (type === 'go') {
+        const cue = msg?.cue || {};
+        const cueId = String(cue?.cueId || '');
+        if (cueId) {
+          const el = cues.find((c) => String(c?.dataset?.cueId || '') === cueId) || null;
+          if (el) {
+            refreshLastTriggeredPanel(el);
+            return;
+          }
+        }
+
+        refreshLastTriggeredPanelFromData({
+          name: String(cue?.name || ''),
+          light: String(cue?.light || ''),
+          video: String(cue?.video || ''),
+          audio: String(cue?.audio || ''),
+          tracker: String(cue?.tracker || '')
+        });
+      }
     });
 
     ws.addEventListener('close', () => {
@@ -222,6 +246,76 @@
     document.body.appendChild(panel);
     pendingPanel = panel;
     refreshPendingInfoPanel();
+  }
+
+  function mountLastTriggeredPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'play-last-panel is-empty';
+    panel.innerHTML = `
+      <span class="play-last-label">Last GO</span>
+      <span class="play-last-name" aria-label="Last triggered cue">(none)</span>
+      <span class="play-last-meta" aria-label="Last triggered cue details"></span>
+      <span class="play-last-time" aria-label="Last triggered cue time"></span>
+    `;
+    document.body.appendChild(panel);
+    lastTriggeredPanel = panel;
+  }
+
+  function refreshLastTriggeredPanel(cueEl) {
+    if (!lastTriggeredPanel) return;
+    const nameEl = lastTriggeredPanel.querySelector('.play-last-name');
+    const metaEl = lastTriggeredPanel.querySelector('.play-last-meta');
+    const timeEl = lastTriggeredPanel.querySelector('.play-last-time');
+
+    if (!cueEl) {
+      if (nameEl) nameEl.textContent = '(none)';
+      if (metaEl) metaEl.textContent = '';
+      if (timeEl) timeEl.textContent = '';
+      lastTriggeredPanel.classList.add('is-empty');
+      return;
+    }
+
+    lastTriggeredPanel.classList.remove('is-empty');
+
+    const ds = /** @type {any} */ (cueEl.dataset || {});
+    const name = cueName(cueEl);
+    refreshLastTriggeredPanelFromData({
+      name,
+      light: String(ds.light || ''),
+      video: String(ds.video || ''),
+      audio: String(ds.audio || ''),
+      tracker: String(ds.tracker || '')
+    });
+
+    if (timeEl) {
+      try {
+        const t = new Date();
+        timeEl.textContent = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch {
+        timeEl.textContent = '';
+      }
+    }
+  }
+
+  function refreshLastTriggeredPanelFromData(data) {
+    if (!lastTriggeredPanel) return;
+    const nameEl = lastTriggeredPanel.querySelector('.play-last-name');
+    const metaEl = lastTriggeredPanel.querySelector('.play-last-meta');
+    if (!nameEl || !metaEl) return;
+
+    const name = String(data?.name || '').trim();
+    nameEl.textContent = name || '(cue)';
+
+    const parts = [];
+    const light = String(data?.light || '').trim();
+    const video = String(data?.video || '').trim();
+    const audio = String(data?.audio || '').trim();
+    const tracker = String(data?.tracker || '').trim();
+    if (light) parts.push(`L:${light}`);
+    if (video) parts.push(`V:${video}`);
+    if (audio) parts.push(`A:${audio}`);
+    if (tracker) parts.push(`T:${tracker}`);
+    metaEl.textContent = parts.join('  ');
   }
 
   function setPendingPanelValue(field, value) {
@@ -467,6 +561,7 @@
     const cueEl = cues[pendingIndex];
     try {
       await sendOscGo(cueEl);
+      refreshLastTriggeredPanel(cueEl);
       cueEl.classList.add('play-triggered');
       tocButtonsByIndex.get(pendingIndex)?.classList.add('is-triggered');
     } catch (err) {
@@ -486,6 +581,8 @@
   async function sendOscGo(cueEl) {
     const ds = /** @type {any} */ (cueEl.dataset || {});
     const body = {
+      cueId: String(ds.cueId || ''),
+      name: cueName(cueEl),
       light: String(ds.light || ''),
       video: String(ds.video || ''),
       audio: String(ds.audio || ''),

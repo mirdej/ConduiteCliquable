@@ -20,7 +20,64 @@ body {
   color: var(--fg);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   line-height: 1.55;
-  padding: 18px 14px 190px;
+  padding: 56px 14px 190px;
+}
+
+/* Top "Last GO" strip */
+.play-last-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 999997;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: rgba(10, 10, 12, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+}
+
+.play-last-panel.is-empty {
+  opacity: 0.85;
+}
+
+.play-last-label {
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.play-last-name {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.84);
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.play-last-meta {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.play-last-time {
+  color: rgba(255, 255, 255, 0.52);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
 }
 
 /* Make the raw script readable on mobile */

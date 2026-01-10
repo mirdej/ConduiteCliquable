@@ -248,6 +248,9 @@ app.post('/osc/go', (req, res) => {
   try {
     if (!oscReady) return res.status(503).json({ ok: false, error: 'OSC not ready' });
 
+    const cueId = String(req.body?.cueId ?? '');
+    const name = String(req.body?.name ?? '');
+
     const light = String(req.body?.light ?? '');
     const video = String(req.body?.video ?? '');
     const audio = String(req.body?.audio ?? '');
@@ -260,6 +263,14 @@ app.post('/osc/go', (req, res) => {
     oscUdpPort.send({ address: '/go/audio/', args: [audio] }, OSC_HOST, OSC_PORT);
     oscUdpPort.send({ address: '/go/tracker/', args: [tracker] }, OSC_HOST, OSC_PORT);
     oscUdpPort.send({ address: '/go/comment/', args: [comment] }, OSC_HOST, OSC_PORT);
+
+    // Notify all clients that a GO happened (so UIs can update even when
+    // the GO was triggered from another connected device).
+    wsBroadcast({
+      type: 'go',
+      cue: { cueId, name, light, video, audio, tracker, comment },
+      ts: Date.now()
+    });
 
     res.json({ ok: true });
   } catch (err) {

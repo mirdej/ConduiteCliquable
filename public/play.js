@@ -79,6 +79,9 @@
       setPending(cues.length ? 0 : -1);
     }
 
+    // If loaded inside Max's jweb, listen for inlet messages.
+    wireMaxInlets();
+
     wireRemoteControl();
 
     // Live sync (pending cue + file changes)
@@ -833,6 +836,43 @@
       window.addEventListener('beforeunload', () => {
         try { es.close(); } catch {}
       });
+    } catch {
+      // ignore
+    }
+  }
+
+  function wireMaxInlets() {
+    try {
+      const max = /** @type {any} */ (window.max);
+      if (!max || typeof max.bindInlet !== 'function') return;
+
+      // Prevent accidental double-binding if the script is re-evaluated.
+      if (window.__LCDC_PLAY_MAX_INLETS__) return;
+      window.__LCDC_PLAY_MAX_INLETS__ = true;
+
+      const run = (fn) => {
+        try {
+          Promise.resolve()
+            .then(fn)
+            .catch(() => {});
+        } catch {}
+      };
+
+      const doGo = () => {
+        if (btnGo?.disabled) return;
+        return triggerPendingCueAndAdvance();
+      };
+
+      const doPrev = () => gotoCueByDelta(-1);
+      const doNext = () => gotoCueByDelta(1);
+
+      // Max patch can send: "go", "prev", "next" directly to the jweb object.
+      max.bindInlet('go', () => run(doGo));
+      max.bindInlet('prev', () => run(doPrev));
+      max.bindInlet('next', () => run(doNext));
+
+      // Also expose a tiny JS API for cases where the patch uses `executejavascript`.
+      window.__LCDC_PLAY_CONTROL__ = { go: doGo, prev: doPrev, next: doNext };
     } catch {
       // ignore
     }

@@ -1,4 +1,9 @@
-# Conduite Node Editor
+# Conduite Cliquable
+
+    This code has been written entirely by artificial intelligence. 
+    I'm not the author, dont blame me for messy code ;-)
+
+
 
 A small Node.js app that wraps your `playScript.html` and enables basic inline text editing (no structural changes) and saving back to disk with automatic backups.
 

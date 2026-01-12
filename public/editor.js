@@ -752,7 +752,10 @@
   document.addEventListener('keydown', (e) => {
     if (!(editMode && !playMode)) return;
     const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    // In WYSIWYG mode the document body is contenteditable, but we still want
+    // Delete/Backspace to remove a selected cue/element.
+    if (document.activeElement?.isContentEditable && !selectedCueEl && !selectedDomEl) return;
     if (e.key === 'Escape') {
       clearSelectedCue();
       clearSelectedDomEl();
@@ -899,6 +902,131 @@
     return Boolean(node?.closest?.('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator'));
   }
 
+  const CUE_CLIPBOARD_MIME = 'application/x-conduite-cue';
+
+  function isRealCueOrSeparatorEl(el) {
+    if (!el) return false;
+    if (!(el instanceof Element)) return false;
+    if (el.classList.contains('cue-label')) return !el.classList.contains('cue-label--template');
+    if (el.classList.contains('cue-separator')) return !el.classList.contains('cue-separator--template');
+    return false;
+  }
+
+  function cueOrSeparatorFromNode(node) {
+    const el = node?.nodeType === 1 ? node : node?.parentElement;
+    const hit = el?.closest?.('.cue-label, .cue-separator');
+    return isRealCueOrSeparatorEl(hit) ? hit : null;
+  }
+
+  function getSingleCueOrSeparatorFromSelection() {
+    try {
+      const sel = window.getSelection();
+      if (!sel) return null;
+
+      const a = cueOrSeparatorFromNode(sel.anchorNode);
+      const f = cueOrSeparatorFromNode(sel.focusNode);
+      if (a && f && a === f) return a;
+
+      if (sel.rangeCount) {
+        const r = sel.getRangeAt(0);
+        if (r.collapsed) {
+          const fromCaret = cueOrSeparatorFromNode(r.startContainer);
+          if (fromCaret) return fromCaret;
+        }
+
+        // If the selection intersects exactly one cue/separator, treat it as an atomic selection.
+        let only = null;
+        let count = 0;
+        const nodes = document.querySelectorAll('.cue-label:not(.cue-label--template), .cue-separator:not(.cue-separator--template)');
+        for (const n of nodes) {
+          try {
+            if (!r.intersectsNode(n)) continue;
+          } catch {
+            continue;
+          }
+          count++;
+          if (count > 1) return null;
+          only = n;
+        }
+        if (count === 1) return only;
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  function serializeCueOrSeparator(el) {
+    if (!isRealCueOrSeparatorEl(el)) return null;
+    if (el.classList.contains('cue-separator')) {
+      return {
+        kind: 'sep',
+        name: el.dataset.name || el.textContent || 'Section'
+      };
+    }
+    // cue-label
+    return {
+      kind: 'cue',
+      name: el.dataset.name || el.textContent || 'Cue',
+      light: el.dataset.light || '',
+      video: el.dataset.video || '',
+      audio: el.dataset.audio || '',
+      tracker: el.dataset.tracker || '',
+      comment: el.dataset.comment || ''
+    };
+  }
+
+  function deserializeCueOrSeparator(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.kind === 'sep') {
+      const sep = createCueSeparator(payload.name || 'Section');
+      return sep;
+    }
+    if (payload.kind === 'cue') {
+      const cue = createCueLabel(payload.name || 'Cue');
+      cue.dataset.light = String(payload.light || '');
+      cue.dataset.video = String(payload.video || '');
+      cue.dataset.audio = String(payload.audio || '');
+      cue.dataset.tracker = String(payload.tracker || '');
+      cue.dataset.comment = String(payload.comment || '');
+      cue.textContent = cue.dataset.name || cue.textContent;
+      return cue;
+    }
+    return null;
+  }
+
+  function deleteCueOrSeparator(el) {
+    if (!isRealCueOrSeparatorEl(el)) return;
+    if (el.classList.contains('cue-label')) {
+      deleteCue(el);
+      return;
+    }
+    // cue-separator
+    if (selectedDomEl === el) clearSelectedDomEl();
+    try { el.remove(); } catch {}
+    setStatus('Section deleted');
+    refreshCueToc();
+  }
+
+  function getRangeForScriptInsertion() {
+    // Prefer live selection if it's in script content.
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        const r = sel.getRangeAt(0);
+        const container = r.commonAncestorContainer.nodeType === 1
+          ? r.commonAncestorContainer
+          : r.commonAncestorContainer.parentElement;
+        if (container && !container.closest?.('.editor-controls, .editor-playbar')) return r;
+      }
+    } catch {
+      // ignore
+    }
+    if (lastScriptRange) return lastScriptRange.cloneRange();
+    if (lastPointer) return caretRangeFromPoint(lastPointer.x, lastPointer.y);
+    return null;
+  }
+
   function applyWysiwygEditableState() {
     const enabled = Boolean(editMode && !playMode);
 
@@ -918,6 +1046,109 @@
 
     if (!enabled) clearSelectedDomEl();
   }
+
+  // Atomic copy/cut/paste for cue labels & separators.
+  // Default browser behavior can be shaky because these are non-editable inline elements.
+  document.addEventListener('copy', (e) => {
+    if (!isWysiwygActive()) return;
+    if (!e.clipboardData) return;
+
+    const el = getSingleCueOrSeparatorFromSelection() || (isRealCueOrSeparatorEl(selectedCueEl) ? selectedCueEl : null);
+    if (!el) return;
+
+    const payload = serializeCueOrSeparator(el);
+    if (!payload) return;
+
+    try {
+      e.preventDefault();
+      e.clipboardData.setData(CUE_CLIPBOARD_MIME, JSON.stringify(payload));
+      e.clipboardData.setData('text/plain', payload.kind === 'sep' ? String(payload.name || 'Section') : String(payload.name || 'Cue'));
+      setStatus(payload.kind === 'sep' ? 'Section copied' : 'Cue copied');
+    } catch {
+      // ignore
+    }
+  }, true);
+
+  document.addEventListener('cut', (e) => {
+    if (!isWysiwygActive()) return;
+    if (!e.clipboardData) return;
+
+    const el = getSingleCueOrSeparatorFromSelection() || (isRealCueOrSeparatorEl(selectedCueEl) ? selectedCueEl : null);
+    if (!el) return;
+
+    const payload = serializeCueOrSeparator(el);
+    if (!payload) return;
+
+    try {
+      e.preventDefault();
+      e.clipboardData.setData(CUE_CLIPBOARD_MIME, JSON.stringify(payload));
+      e.clipboardData.setData('text/plain', payload.kind === 'sep' ? String(payload.name || 'Section') : String(payload.name || 'Cue'));
+      deleteCueOrSeparator(el);
+      setStatus(payload.kind === 'sep' ? 'Section cut' : 'Cue cut');
+    } catch {
+      // ignore
+    }
+  }, true);
+
+  document.addEventListener('paste', (e) => {
+    if (!isWysiwygActive()) return;
+    const raw = e.clipboardData?.getData?.(CUE_CLIPBOARD_MIME);
+    if (!raw) return;
+
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch { payload = null; }
+    const el = deserializeCueOrSeparator(payload);
+    if (!el) return;
+
+    e.preventDefault();
+
+    const range = getRangeForScriptInsertion();
+    if (!range) {
+      document.body.insertBefore(el, controls);
+      el.after(document.createTextNode(' '));
+      updateCueInteractivity();
+      setStatus(el.classList.contains('cue-separator') ? 'Section pasted' : 'Cue pasted');
+      return;
+    }
+
+    // Avoid inserting *inside* a non-editable cue/separator.
+    const inCue = cueOrSeparatorFromNode(range.startContainer);
+    if (inCue) {
+      try {
+        range.setStartAfter(inCue);
+        range.collapse(true);
+      } catch {
+        // ignore
+      }
+    }
+
+    try {
+      range.deleteContents();
+    } catch {
+      // ignore
+    }
+
+    range.insertNode(el);
+    const space = document.createTextNode(' ');
+    el.after(space);
+
+    // Place caret after inserted cue.
+    try {
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        const r2 = document.createRange();
+        r2.setStart(space, 1);
+        r2.collapse(true);
+        sel.addRange(r2);
+      }
+    } catch {
+      // ignore
+    }
+
+    updateCueInteractivity();
+    setStatus(el.classList.contains('cue-separator') ? 'Section pasted' : 'Cue pasted');
+  }, true);
 
   function setSelectedDomEl(el) {
     if (selectedDomEl === el) return;

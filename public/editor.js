@@ -1320,6 +1320,7 @@
       const nodes = Array.from(t.content.childNodes);
       if (!nodes.length) return;
       const firstEl = nodes.find((n) => n.nodeType === 1) || null;
+      pushStructuralUndoPoint();
       el.replaceWith(...nodes);
       if (firstEl) setSelectedDomEl(firstEl);
       updateCueInteractivity();
@@ -1414,6 +1415,7 @@
       const name = window.prompt('Section name:', suggested);
       if (name === null) return;
       const finalName = String(name).trim() || suggested;
+      pushStructuralUndoPoint();
       sep.dataset.name = finalName;
       sep.textContent = finalName;
       setStatus('Section renamed');
@@ -1432,6 +1434,7 @@
       const name = window.prompt('Cue name:', suggested);
       if (name === null) return;
       const finalName = String(name).trim() || suggested;
+      pushStructuralUndoPoint();
       cue.dataset.name = finalName;
       cue.textContent = finalName;
       setStatus('Cue renamed');

@@ -902,6 +902,98 @@
     return Boolean(node?.closest?.('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator'));
   }
 
+  const HISTORY_STRIP_SELECTORS = '.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .cue-drop-placeholder, .editor-drop-indicator';
+  const STRUCT_HISTORY_MAX = 60;
+  /** @type {Array<{ html: string, pendingCueId: string, selectedCueId: string, scrollY: number }>} */
+  const structUndoStack = [];
+  /** @type {Array<{ html: string, pendingCueId: string, selectedCueId: string, scrollY: number }>} */
+  const structRedoStack = [];
+
+  function getScriptBodyHtmlForHistory() {
+    const clone = document.body.cloneNode(true);
+    clone.querySelectorAll(HISTORY_STRIP_SELECTORS).forEach((n) => n.remove());
+    return clone.innerHTML;
+  }
+
+  function captureStructuralState() {
+    return {
+      html: getScriptBodyHtmlForHistory(),
+      pendingCueId: String(pendingCueEl?.dataset?.cueId || ''),
+      selectedCueId: String(selectedCueEl?.dataset?.cueId || ''),
+      scrollY: Number.isFinite(window.scrollY) ? window.scrollY : 0
+    };
+  }
+
+  function restoreScriptBodyHtmlFromHistory(html) {
+    // Clear transient editor artifacts.
+    document.querySelectorAll('.editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => n.remove());
+
+    // Remove all non-UI nodes from body.
+    for (const n of Array.from(document.body.childNodes)) {
+      if (n.nodeType === 1) {
+        const el = /** @type {Element} */ (n);
+        if (el.matches(HISTORY_STRIP_SELECTORS)) continue;
+      }
+      try { n.remove(); } catch {}
+    }
+
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html || '';
+
+    const anchor = controls || document.body.lastChild;
+    while (tmp.firstChild) {
+      if (anchor && anchor.parentNode === document.body) document.body.insertBefore(tmp.firstChild, anchor);
+      else document.body.appendChild(tmp.firstChild);
+    }
+  }
+
+  function restoreStructuralState(state) {
+    if (!state) return;
+    restoreScriptBodyHtmlFromHistory(state.html);
+
+    // Re-apply editor invariants.
+    applyWysiwygEditableState();
+    updateCueInteractivity();
+
+    // Restore selection-ish state.
+    const selCueId = state.selectedCueId || '';
+    const pendCueId = state.pendingCueId || '';
+    const selCue = selCueId ? document.querySelector(`.cue-label[data-cue-id="${cssEscape(selCueId)}"]`) : null;
+    const pendCue = pendCueId ? document.querySelector(`.cue-label[data-cue-id="${cssEscape(pendCueId)}"]`) : null;
+
+    if (selCue) setSelectedCue(selCue);
+    else clearSelectedCue();
+
+    if (pendCue) setPendingCue(pendCue, { scroll: false });
+    else setPendingCue(null, { scroll: false });
+
+    try { window.scrollTo(0, state.scrollY || 0); } catch {}
+    lastScriptRange = null;
+    lastPointer = null;
+  }
+
+  function pushStructuralUndoPoint() {
+    structUndoStack.push(captureStructuralState());
+    while (structUndoStack.length > STRUCT_HISTORY_MAX) structUndoStack.shift();
+    structRedoStack.length = 0;
+  }
+
+  function structuralUndo() {
+    if (structUndoStack.length === 0) return false;
+    structRedoStack.push(captureStructuralState());
+    const prev = structUndoStack.pop();
+    restoreStructuralState(prev);
+    return true;
+  }
+
+  function structuralRedo() {
+    if (structRedoStack.length === 0) return false;
+    structUndoStack.push(captureStructuralState());
+    const next = structRedoStack.pop();
+    restoreStructuralState(next);
+    return true;
+  }
+
   const CUE_CLIPBOARD_MIME = 'application/x-conduite-cue';
 
   function isRealCueOrSeparatorEl(el) {
@@ -1083,6 +1175,7 @@
       e.preventDefault();
       e.clipboardData.setData(CUE_CLIPBOARD_MIME, JSON.stringify(payload));
       e.clipboardData.setData('text/plain', payload.kind === 'sep' ? String(payload.name || 'Section') : String(payload.name || 'Cue'));
+      pushStructuralUndoPoint();
       deleteCueOrSeparator(el);
       setStatus(payload.kind === 'sep' ? 'Section cut' : 'Cue cut');
     } catch {
@@ -1101,6 +1194,7 @@
     if (!el) return;
 
     e.preventDefault();
+    pushStructuralUndoPoint();
 
     const range = getRangeForScriptInsertion();
     if (!range) {
@@ -1148,6 +1242,37 @@
 
     updateCueInteractivity();
     setStatus(el.classList.contains('cue-separator') ? 'Section pasted' : 'Cue pasted');
+  }, true);
+
+  // Undo/redo: prefer native undo (text), fallback to structural history (cues/moves).
+  document.addEventListener('keydown', (e) => {
+    if (!isWysiwygActive()) return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.altKey) return;
+    const k = String(e.key || '').toLowerCase();
+    if (k !== 'z' && k !== 'y') return;
+
+    // Let native behavior in standard inputs.
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.closest?.('.editor-overlay')) return;
+
+    const isRedo = (k === 'y') || (k === 'z' && e.shiftKey);
+    e.preventDefault();
+
+    // First, attempt native undo/redo.
+    const before = getScriptBodyHtmlForHistory();
+    try { document.execCommand(isRedo ? 'redo' : 'undo'); } catch {}
+    const after = getScriptBodyHtmlForHistory();
+
+    if (before !== after) {
+      // Native handled it (typically text edits).
+      updateCueInteractivity();
+      return;
+    }
+
+    // Fall back to structural history.
+    const ok = isRedo ? structuralRedo() : structuralUndo();
+    if (ok) setStatus(isRedo ? 'Redo' : 'Undo');
   }, true);
 
   function setSelectedDomEl(el) {

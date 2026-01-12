@@ -765,10 +765,12 @@
     e.preventDefault();
 
     if (selectedCueEl) {
+      pushStructuralUndoPoint();
       deleteCue(selectedCueEl);
       return;
     }
     if (selectedDomEl) {
+      pushStructuralUndoPoint();
       deleteDomEl(selectedDomEl);
       clearSelectedDomEl();
     }
@@ -1853,6 +1855,8 @@
     if (!draggingCueEl) return;
     if (e.target?.closest?.('.editor-controls, .editor-playbar')) return;
     e.preventDefault();
+
+    pushStructuralUndoPoint();
 
     const range = caretRangeFromPoint(e.clientX, e.clientY);
     if (!range) return;

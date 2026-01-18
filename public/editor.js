@@ -21,11 +21,16 @@
   let currentHitIndex = -1;
   let highlightEls = [];
 
-  // Pending cue state
-  let pendingCueEl = null;
-  let draggingCueEl = null;
+  // Local editing state (not broadcast to other clients)
   let selectedCueEl = null;
+  let draggingCueEl = null;
   let selectedDomEl = null;
+  
+  // Remote show state (received from /play clients via WebSocket)
+  let remotePendingCueId = '';
+  let remotePendingCueIndex = -1;
+  let remoteLastTriggeredCueId = '';
+  let remoteLastTriggeredCueIndex = -1;
   let lastScriptRange = null;
   let lastPointer = null;
   let dropPlaceholderEl = null;
@@ -82,9 +87,6 @@
       <span class="editor-status" aria-live="polite"></span>
     </div>
     <div class="editor-controls-right">
-      <button data-action="mode">Mode: Edit</button>
-      <button data-action="toggle">Editing: On</button>
-      <button data-action="spacebar-go" title="Enable/disable Spacebar to GO">Space GO: On</button>
       <button data-action="save">Save</button>
     </div>
   `;
@@ -94,12 +96,11 @@
   playbar.className = 'editor-playbar';
   playbar.innerHTML = `
     <div class="playbar-top">
-      <span class="playbar-title">Pending Cue:</span>
+      <span class="playbar-title">Selected Cue:</span>
       <span class="playbar-pending-label">(none)</span>
       <span class="playbar-actions">
         <button data-action="cue-prev">Prev</button>
         <button data-action="cue-next">Next</button>
-        <button class="go" data-action="cue-go">GO</button>
       </span>
     </div>
     <div class="playbar-fields">
@@ -323,7 +324,10 @@
     const setPlaybarSpacerHeight = () => {
       try {
         const h = Math.round(playbar.getBoundingClientRect().height);
-        playbarSpacer.style.height = `${Math.max(64, h)}px`;
+        const hh = Math.max(64, h);
+        playbarSpacer.style.height = `${hh}px`;
+        // Expose playbar height to CSS so panels can position below it
+        document.documentElement.style.setProperty('--editor-playbar-height', `${hh}px`);
       } catch {}
     };
     setPlaybarSpacerHeight();
@@ -346,8 +350,7 @@
 
     mountCueTocPanel();
 
-    // GO button: trigger on release (after playbar is mounted)
-    wireGoTriggerOnRelease();
+    // GO/play triggers remain disabled in edit mode.
 
     // Theme init
     try {
@@ -389,42 +392,7 @@
 
     updateSearchUi();
 
-    // Remote control (OSC -> server -> SSE)
-    try {
-      // Defensive: avoid multiple active EventSource connections if this script
-      // is ever loaded twice (or hot-reloaded by the browser).
-      const prev = window.__LCDC_EDITOR_EVENTS__;
-      try { prev?.close?.(); } catch {}
-
-      const es = new EventSource(cfg.eventsUrl || '/events');
-      window.__LCDC_EDITOR_EVENTS__ = es;
-      es.addEventListener('message', (ev) => {
-        let data;
-        try { data = JSON.parse(ev.data); } catch { return; }
-        const cmd = String(data?.cmd || '');
-        if (cmd === 'go') {
-          if (!playMode) return;
-          // Match the GO button behavior: ignore if GO is disabled.
-          const go = goBtnEl();
-          if (go?.disabled) return;
-          triggerPendingCueAndAdvance();
-        }
-        if (cmd === 'prev') {
-          if (!playMode) return;
-          gotoCueByDelta(-1);
-        }
-        if (cmd === 'next') {
-          if (!playMode) return;
-          gotoCueByDelta(1);
-        }
-      });
-
-      window.addEventListener('beforeunload', () => {
-        try { es.close(); } catch {}
-      });
-    } catch {
-      // ignore
-    }
+    // No remote control/EventSource in edit mode.
 
     initWebSocket();
   });
@@ -458,15 +426,33 @@
     const panel = document.createElement('div');
     panel.className = 'play-pending-panel';
     panel.innerHTML = `
-      <span class="play-pending-label">Pending</span>
-      <span class="play-pending-name" aria-label="Pending cue">(none)</span>
-      <span class="play-pending-meta" aria-label="Pending cue details"></span>
+      <span class="play-pending-label">Show: Pending</span>
+      <span class="play-pending-name" aria-label="Remote pending cue">(none)</span>
+      <span class="play-pending-meta" aria-label="Remote pending cue details"></span>
     `;
     document.body.appendChild(panel);
     pendingPanelEl = panel;
+    // Make panel behave like a button and never editable
+    panel.setAttribute('role', 'button');
+    panel.setAttribute('tabindex', '0');
+    panel.setAttribute('contenteditable', 'false');
     panel.addEventListener('click', (e) => {
       e.preventDefault();
-      if (pendingCueEl) scrollCueIntoView(pendingCueEl);
+      const cue = getCueById(remotePendingCueId) || (remotePendingCueIndex >= 0 ? getCueLabels()[remotePendingCueIndex] : null);
+      if (cue) {
+        setSelectedCue(cue);
+        scrollCueIntoView(cue);
+      }
+    });
+    // Keyboard activation
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      const cue = getCueById(remotePendingCueId) || (remotePendingCueIndex >= 0 ? getCueLabels()[remotePendingCueIndex] : null);
+      if (cue) {
+        setSelectedCue(cue);
+        scrollCueIntoView(cue);
+      }
     });
     refreshEditorPendingPanel();
   }
@@ -476,15 +462,32 @@
     panel.className = 'play-last-panel is-empty';
     panel.innerHTML = `
       <span class="play-last-label">Last GO</span>
-      <span class="play-last-name" aria-label="Last triggered cue">(none)</span>
-      <span class="play-last-meta" aria-label="Last triggered cue details"></span>
+      <span class="play-last-name" aria-label="Remote last triggered cue">(none)</span>
+      <span class="play-last-meta" aria-label="Remote last triggered cue details"></span>
     `;
     document.body.appendChild(panel);
     lastPanelEl = panel;
+    // Make panel behave like a button and never editable
+    panel.setAttribute('role', 'button');
+    panel.setAttribute('tabindex', '0');
+    panel.setAttribute('contenteditable', 'false');
     panel.addEventListener('click', (e) => {
       e.preventDefault();
-      const el = getCueById(lastTriggeredCueId) || (lastTriggeredCueIndex >= 0 ? getCueLabels()[lastTriggeredCueIndex] : null);
-      if (el) scrollCueIntoView(el);
+      const el = getCueById(remoteLastTriggeredCueId) || (remoteLastTriggeredCueIndex >= 0 ? getCueLabels()[remoteLastTriggeredCueIndex] : null);
+      if (el) {
+        setSelectedCue(el);
+        scrollCueIntoView(el);
+      }
+    });
+    // Keyboard activation
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      const el = getCueById(remoteLastTriggeredCueId) || (remoteLastTriggeredCueIndex >= 0 ? getCueLabels()[remoteLastTriggeredCueIndex] : null);
+      if (el) {
+        setSelectedCue(el);
+        scrollCueIntoView(el);
+      }
     });
   }
 
@@ -493,7 +496,8 @@
     const metaEl = pendingPanelEl?.querySelector('.play-pending-meta');
     if (!pendingPanelEl || !nameEl || !metaEl) return;
 
-    const cue = pendingCueEl;
+    // Show remote pending cue from /play clients
+    const cue = getCueById(remotePendingCueId) || (remotePendingCueIndex >= 0 ? getCueLabels()[remotePendingCueIndex] : null);
     if (!cue) {
       pendingPanelEl.classList.add('is-empty');
       pendingPanelEl.classList.remove('is-clickable');
@@ -518,27 +522,56 @@
     const nameEl = lastPanelEl?.querySelector('.play-last-name');
     const metaEl = lastPanelEl?.querySelector('.play-last-meta');
     if (!lastPanelEl || !nameEl || !metaEl) return;
+
     if (!cueEl) {
+      remoteLastTriggeredCueId = '';
+      remoteLastTriggeredCueIndex = -1;
       lastPanelEl.classList.add('is-empty');
       lastPanelEl.classList.remove('is-clickable');
       nameEl.textContent = '(none)';
       metaEl.textContent = '';
-      lastTriggeredCueIndex = -1;
       return;
     }
+
     lastPanelEl.classList.remove('is-empty');
     lastPanelEl.classList.add('is-clickable');
+
+    remoteLastTriggeredCueId = String(cueEl?.dataset?.cueId || '');
+    remoteLastTriggeredCueIndex = getCueLabels().indexOf(cueEl);
+
     const ds = /** @type {any} */ (cueEl.dataset || {});
     const name = String(ds.name || cueEl.textContent || '').trim();
     nameEl.textContent = name || '(cue)';
+
     const parts = [];
     if (ds.light) parts.push(`L:${ds.light}`);
     if (ds.video) parts.push(`V:${ds.video}`);
     if (ds.audio) parts.push(`A:${ds.audio}`);
     if (ds.tracker) parts.push(`T:${ds.tracker}`);
     metaEl.textContent = parts.join('  ');
-    const cues = getCueLabels();
-    lastTriggeredCueIndex = cues.indexOf(cueEl);
+  }
+
+  function refreshEditorLastPanelFromData(data) {
+    const nameEl = lastPanelEl?.querySelector('.play-last-name');
+    const metaEl = lastPanelEl?.querySelector('.play-last-meta');
+    if (!lastPanelEl || !nameEl || !metaEl) return;
+    lastPanelEl.classList.remove('is-empty');
+    // Panel isn’t clickable if we don’t have a direct element reference
+    lastPanelEl.classList.remove('is-clickable');
+
+    const name = String(data?.name || '').trim();
+    nameEl.textContent = name || '(cue)';
+
+    const parts = [];
+    const light = String(data?.light || '').trim();
+    const video = String(data?.video || '').trim();
+    const audio = String(data?.audio || '').trim();
+    const tracker = String(data?.tracker || '').trim();
+    if (light) parts.push(`L:${light}`);
+    if (video) parts.push(`V:${video}`);
+    if (audio) parts.push(`A:${audio}`);
+    if (tracker) parts.push(`T:${tracker}`);
+    metaEl.textContent = parts.join('  ');
   }
 
   function wsUrl() {
@@ -570,28 +603,37 @@
         return;
       }
 
+      // Receive remote pending cue from /play clients (show state)
       if (type === 'state' || type === 'pending') {
-        // In Edit mode, don't follow the shared pending cue.
-        if (!playMode) return;
         const pending = msg?.pending || {};
-        const cueId = String(pending?.cueId || '');
+        const cueId = String(pending?.cueId || '').trim();
         const index = Number.isFinite(pending?.index) ? Number(pending.index) : -1;
 
-        const cues = getCueLabels();
-        let target = null;
-        if (cueId) {
-          target = document.querySelector(`.cue-label[data-cue-id="${cssEscape(cueId)}"]`);
-        }
-        if (!target && index >= 0 && index < cues.length) target = cues[index];
+        // Update remote pending state (do NOT scroll or change local selection)
+        remotePendingCueId = cueId;
+        remotePendingCueIndex = index;
+        refreshEditorPendingPanel();
+        updateRemotePendingHighlight();
+      }
 
-        if (target) {
-          suppressWsSend = true;
-          try {
-            setPendingCue(target, { scroll: false });
-          } finally {
-            suppressWsSend = false;
-          }
-        }
+      // Receive remote GO trigger from /play clients
+      if (type === 'go') {
+        const cue = msg?.cue || msg?.data || {};
+        const cueId = String(cue?.cueId || '').trim();
+        const index = Number.isFinite(cue?.index) ? Number(cue.index) : -1;
+        
+        // Update remote last triggered state (do NOT scroll or change local selection)
+        remoteLastTriggeredCueId = cueId;
+        remoteLastTriggeredCueIndex = index;
+        
+        // Update last panel from data
+        refreshEditorLastPanelFromData({
+          name: String(cue?.name || ''),
+          light: String(cue?.light || ''),
+          video: String(cue?.video || ''),
+          audio: String(cue?.audio || ''),
+          tracker: String(cue?.tracker || '')
+        });
       }
     });
 
@@ -599,6 +641,35 @@
       ws = null;
       window.setTimeout(initWebSocket, 1000);
     });
+  }
+
+  // Sync the playbar fields to the current selected cue (local only)
+  function syncPlaybarFields() {
+    const labelEl = pendingLabelEl();
+    const lightEl = pendingLightEl();
+    const videoEl = pendingVideoEl();
+    const audioEl = pendingAudioEl();
+    const trackerEl = pendingTrackerEl();
+    const commentEl = pendingCommentEl();
+
+    if (!selectedCueEl) {
+      if (labelEl) labelEl.textContent = '(none)';
+      if (lightEl) lightEl.value = '';
+      if (videoEl) videoEl.value = '';
+      if (audioEl) audioEl.value = '';
+      if (trackerEl) trackerEl.value = '';
+      if (commentEl) commentEl.value = '';
+      return;
+    }
+
+    const ds = /** @type {any} */ (selectedCueEl.dataset || {});
+    const name = String(ds.name || selectedCueEl.textContent || '').trim();
+    if (labelEl) labelEl.textContent = name || '(cue)';
+    if (lightEl) lightEl.value = String(ds.light || '');
+    if (videoEl) videoEl.value = String(ds.video || '');
+    if (audioEl) audioEl.value = String(ds.audio || '');
+    if (trackerEl) trackerEl.value = String(ds.tracker || '');
+    if (commentEl) commentEl.value = String(ds.comment || '');
   }
 
   function applySpacebarGoShortcutUi() {
@@ -627,12 +698,29 @@
     return el;
   }
 
+  // Highlight the remote pending cue (show state) without changing local selection
+  let remotePendingAppliedEl = null;
+  function updateRemotePendingHighlight() {
+    // Remove previous highlight
+    if (remotePendingAppliedEl) {
+      try { remotePendingAppliedEl.classList.remove('cue-label--pending'); } catch {}
+      remotePendingAppliedEl = null;
+    }
+
+    // Find new remote pending element
+    const el = getCueById(remotePendingCueId) || (remotePendingCueIndex >= 0 ? getCueLabels()[remotePendingCueIndex] : null);
+    if (el && el.classList.contains('cue-label')) {
+      el.classList.add('cue-label--pending');
+      remotePendingAppliedEl = el;
+    }
+  }
+
   function positionCommentBubble() {
     if (!commentBubbleEl) return;
-    if (!pendingCueEl) return;
+    if (!selectedCueEl) return;
     if (!commentBubbleEl.classList.contains('is-visible')) return;
 
-    const cueRect = pendingCueEl.getBoundingClientRect();
+    const cueRect = selectedCueEl.getBoundingClientRect();
     const bubbleRect = commentBubbleEl.getBoundingClientRect();
     const pad = 12;
     const gap = 10;
@@ -659,7 +747,7 @@
 
   function updateCommentBubble() {
     const el = ensureCommentBubble();
-    const comment = (pendingCueEl?.dataset?.comment || '').trim();
+    const comment = (selectedCueEl?.dataset?.comment || '').trim();
     const shouldShow = Boolean(playMode && comment.length);
     el.textContent = comment;
     el.classList.toggle('is-visible', shouldShow);
@@ -716,7 +804,7 @@
 
   function refreshCueToc() {
     if (!tocListEl) return;
-    const pendingId = pendingCueEl?.dataset?.cueId || '';
+    const pendingId = selectedCueEl?.dataset?.cueId || '';
 
     tocListEl.innerHTML = '';
 
@@ -803,17 +891,7 @@
     return controls.querySelector('.cue-separator--template');
   }
 
-  // Keyboard shortcut: Cmd/Ctrl+E toggles Play/Edit mode.
-  document.addEventListener('keydown', (e) => {
-    const key = (e.key || '').toLowerCase();
-    if (key !== 'e') return;
-    if (!(e.metaKey || e.ctrlKey)) return;
-    if (e.shiftKey || e.altKey) return;
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
-    e.preventDefault();
-    setMode(!playMode);
-  });
+  // Play/Edit mode toggle removed.
 
   // Keyboard shortcut: Cmd/Ctrl+S triggers Save.
   document.addEventListener('keydown', async (e) => {
@@ -848,51 +926,7 @@
     gotoHit(currentHitIndex + 1);
   });
 
-  // Keyboard shortcut: Space triggers GO (optional).
-  document.addEventListener('keydown', (e) => {
-    if (isTypingContext()) return;
-
-    const isSpace = e.code === 'Space' || e.key === ' ';
-    if (!isSpace) return;
-
-    // Don't steal browser/system shortcuts.
-    if (e.metaKey || e.ctrlKey) return;
-
-    // Extra navigation shortcuts (only when Space GO is enabled)
-    if (spacebarGoShortcutEnabled && playMode) {
-      if (e.shiftKey && !e.altKey) {
-        e.preventDefault();
-        if (e.repeat) return;
-        gotoCueByDelta(-1);
-        return;
-      }
-      if (e.altKey && !e.shiftKey) {
-        e.preventDefault();
-        if (e.repeat) return;
-        gotoCueByDelta(1);
-        return;
-      }
-    }
-
-    // Plain Space: always prevent page scroll (even when Space GO is disabled).
-    if (!e.shiftKey && !e.altKey) {
-      e.preventDefault();
-    } else {
-      // With modifiers, only block defaults if we handled it above.
-      return;
-    }
-
-    // Only trigger GO if shortcut is enabled, in play mode, and not repeating.
-    if (!spacebarGoShortcutEnabled) return;
-    if (!playMode) return;
-    if (e.repeat) return;
-
-    // Only handle if GO is currently enabled.
-    const go = goBtnEl();
-    if (go?.disabled) return;
-
-    triggerPendingCueAndAdvance();
-  });
+  // Spacebar GO shortcut removed.
 
   // Delete selected cue in Edit mode (Delete/Backspace). Esc clears selection.
   document.addEventListener('keydown', (e) => {
@@ -962,28 +996,7 @@
     if (!btn) return;
     const action = btn.getAttribute('data-action');
 
-    if (action === 'toggle') {
-      editMode = !editMode;
-      const b = toggleBtnEl();
-      if (b) b.textContent = `Editing: ${editMode ? 'On' : 'Off'}`;
-      setStatus(editMode ? 'Editing enabled' : 'Editing disabled');
-      applyEditModeVisual();
-      updateCueInteractivity();
-      return;
-    }
-
-    if (action === 'spacebar-go') {
-      spacebarGoShortcutEnabled = !spacebarGoShortcutEnabled;
-      applySpacebarGoShortcutUi();
-      setStatus(spacebarGoShortcutEnabled ? 'Spacebar GO enabled' : 'Spacebar GO disabled');
-      try { localStorage.setItem('editorSpacebarGo', spacebarGoShortcutEnabled ? '1' : '0'); } catch {}
-      return;
-    }
-
-    if (action === 'mode') {
-      setMode(!playMode);
-      return;
-    }
+    // Removed actions: toggle edit, spacebar-go, mode.
 
     // (Add Cue button removed; use the draggable template badge.)
 
@@ -1010,23 +1023,25 @@
     }
   });
 
+  // Playbar interactions: prev/next; GO remains inactive in edit mode.
   playbar.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
     const action = btn.getAttribute('data-action');
     if (action === 'cue-prev') gotoCueByDelta(-1);
     if (action === 'cue-next') gotoCueByDelta(1);
-    // GO handled by pointer-trigger-on-release wiring.
+    // GO handled when play triggers are enabled (kept disabled in /edit).
     if (action === 'cue-go') return;
   });
 
+  // Playbar inputs: edit current pending cue’s fields.
   playbar.addEventListener('input', () => {
-    if (!pendingCueEl) return;
-    pendingCueEl.dataset.light = pendingLightEl()?.value ?? '';
-    pendingCueEl.dataset.video = pendingVideoEl()?.value ?? '';
-    pendingCueEl.dataset.audio = pendingAudioEl()?.value ?? '';
-    pendingCueEl.dataset.tracker = pendingTrackerEl()?.value ?? '';
-    pendingCueEl.dataset.comment = pendingCommentEl()?.value ?? '';
+    if (!selectedCueEl) return;
+    selectedCueEl.dataset.light = pendingLightEl()?.value ?? '';
+    selectedCueEl.dataset.video = pendingVideoEl()?.value ?? '';
+    selectedCueEl.dataset.audio = pendingAudioEl()?.value ?? '';
+    selectedCueEl.dataset.tracker = pendingTrackerEl()?.value ?? '';
+    selectedCueEl.dataset.comment = pendingCommentEl()?.value ?? '';
     updateCommentBubble();
   });
 
@@ -1047,10 +1062,12 @@
   }
 
   function isInEditorUi(node) {
-    return Boolean(node?.closest?.('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator'));
+    // Treat status panels as part of editor UI so clicks don't select/delete them
+    return Boolean(node?.closest?.('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator, .play-pending-panel, .play-last-panel'));
   }
 
-  const HISTORY_STRIP_SELECTORS = '.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .cue-drop-placeholder, .editor-drop-indicator';
+  // Exclude injected status panels from structural history snapshots
+  const HISTORY_STRIP_SELECTORS = '.editor-controls, .editor-overlay, .editor-search-hit, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .cue-drop-placeholder, .editor-drop-indicator, .play-pending-panel, .play-last-panel';
   const STRUCT_HISTORY_MAX = 60;
   /** @type {Array<{ html: string, pendingCueId: string, selectedCueId: string, scrollY: number }>} */
   const structUndoStack = [];
@@ -1066,7 +1083,7 @@
   function captureStructuralState() {
     return {
       html: getScriptBodyHtmlForHistory(),
-      pendingCueId: String(pendingCueEl?.dataset?.cueId || ''),
+      pendingCueId: String(selectedCueEl?.dataset?.cueId || ''),
       selectedCueId: String(selectedCueEl?.dataset?.cueId || ''),
       scrollY: Number.isFinite(window.scrollY) ? window.scrollY : 0
     };
@@ -1275,7 +1292,7 @@
     else document.body.removeAttribute('contenteditable');
 
     // Always protect injected UI from edits.
-    document.querySelectorAll('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator').forEach((n) => {
+    document.querySelectorAll('.editor-controls, .editor-playbar, .editor-playbar-spacer, .editor-comment-bubble, .editor-toc, .editor-overlay, .editor-search-hit, .cue-drop-placeholder, .editor-drop-indicator, .play-pending-panel, .play-last-panel').forEach((n) => {
       try { n.setAttribute('contenteditable', 'false'); } catch {}
     });
 
@@ -1536,12 +1553,12 @@
 
     // If nothing selected, default to first cue (in either mode).
     const shouldPreserveScroll = Boolean(opts.preserveScroll);
-    if (!pendingCueEl) {
+    if (!selectedCueEl) {
       const cues = getCueLabels();
       if (cues.length) setPendingCue(cues[0], { scroll: !shouldPreserveScroll });
       else setPendingCue(null);
     } else {
-      setPendingCue(pendingCueEl, { scroll: !shouldPreserveScroll });
+      setPendingCue(selectedCueEl, { scroll: !shouldPreserveScroll });
     }
 
     updateCommentBubble();
@@ -1584,7 +1601,7 @@
       cue.dataset.name = finalName;
       cue.textContent = finalName;
       setStatus('Cue renamed');
-      if (pendingCueEl === cue) setPendingCue(cue, { scroll: false });
+      if (selectedCueEl === cue) setPendingCue(cue, { scroll: false });
       refreshCueToc();
       return;
     }
@@ -1689,18 +1706,27 @@
     if (selectedCueEl) selectedCueEl.classList.remove('cue-label--selected');
     selectedCueEl = el;
     if (selectedCueEl) selectedCueEl.classList.add('cue-label--selected');
+    // Keep playbar fields in sync with the current selection
+    syncPlaybarFields();
+    updateCommentBubble();
+    // Position bubble after layout
+    requestAnimationFrame(positionCommentBubble);
   }
 
   function clearSelectedCue() {
     if (!selectedCueEl) return;
     selectedCueEl.classList.remove('cue-label--selected');
+    // Ensure no pending class remains from previous logic
+    selectedCueEl.classList.remove('cue-label--pending');
     selectedCueEl = null;
+    syncPlaybarFields();
+    updateCommentBubble();
   }
 
   function deleteCue(el) {
     if (!el) return;
     if (el.classList.contains('cue-label--template')) return;
-    if (pendingCueEl === el) setPendingCue(null);
+    if (selectedCueEl === el) setPendingCue(null);
     if (selectedCueEl === el) selectedCueEl = null;
     try { el.remove(); } catch {}
     setStatus('Cue deleted');
@@ -1809,43 +1835,17 @@
   }
 
   function setPendingCue(el, opts = {}) {
-    if (pendingCueEl) pendingCueEl.classList.remove('cue-label--pending');
-    pendingCueEl = el;
-    if (pendingCueEl) pendingCueEl.classList.add('cue-label--pending');
+    // In Edit mode, pending is local selection only; do not alter remote pending highlight
+    setSelectedCue(el);
 
-    // Broadcast shared pending cue (play mode + editor playbar).
-    if (playMode && !suppressWsSend && ws && ws.readyState === ws.OPEN) {
-      try {
-        const cues = getCueLabels();
-        const idx = pendingCueEl ? cues.indexOf(pendingCueEl) : -1;
-        const cueId = pendingCueEl?.dataset?.cueId || '';
-        ws.send(JSON.stringify({ type: 'setPending', cueId, index: idx, ts: Date.now() }));
-      } catch {
-        // ignore
-      }
-    }
+    // Do not broadcast client-side pending changes from /edit.
 
-    const label = pendingLabelEl();
-    if (!pendingCueEl) {
-      if (label) label.textContent = '(none)';
-      if (pendingLightEl()) pendingLightEl().value = '';
-      if (pendingVideoEl()) pendingVideoEl().value = '';
-      if (pendingAudioEl()) pendingAudioEl().value = '';
-      if (pendingTrackerEl()) pendingTrackerEl().value = '';
-      if (pendingCommentEl()) pendingCommentEl().value = '';
-      return;
-    }
-
-    if (label) label.textContent = pendingCueEl.dataset.name || '(cue)';
-    if (pendingLightEl()) pendingLightEl().value = pendingCueEl.dataset.light || '';
-    if (pendingVideoEl()) pendingVideoEl().value = pendingCueEl.dataset.video || '';
-    if (pendingAudioEl()) pendingAudioEl().value = pendingCueEl.dataset.audio || '';
-    if (pendingTrackerEl()) pendingTrackerEl().value = pendingCueEl.dataset.tracker || '';
-    if (pendingCommentEl()) pendingCommentEl().value = pendingCueEl.dataset.comment || '';
+    // Sync playbar fields from current selection
+    syncPlaybarFields();
 
     const shouldScroll = opts.scroll !== false;
     if (shouldScroll) {
-      pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      selectedCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     updateCommentBubble();
     refreshEditorPendingPanel();
@@ -1855,7 +1855,7 @@
   function gotoCueByDelta(delta) {
     const cues = getCueLabels();
     if (!cues.length) return;
-    const idx = pendingCueEl ? cues.indexOf(pendingCueEl) : -1;
+    const idx = selectedCueEl ? cues.indexOf(selectedCueEl) : -1;
     const nextIdx = idx === -1 ? 0 : Math.min(cues.length - 1, Math.max(0, idx + delta));
     setPendingCue(cues[nextIdx]);
   }
@@ -1866,7 +1866,7 @@
   const GO_COOLDOWN_MS = 250;
 
   function triggerPendingCueAndAdvance() {
-    if (!pendingCueEl) return;
+    if (!selectedCueEl) return;
     // Do not trigger OSC in Edit mode
     if (!playMode) return;
 
@@ -1877,12 +1877,12 @@
     lastGoAtMs = now;
 
     const payload = {
-      name: pendingCueEl.dataset.name || '',
-      light: pendingCueEl.dataset.light || '',
-      video: pendingCueEl.dataset.video || '',
-      audio: pendingCueEl.dataset.audio || '',
-      tracker: pendingCueEl.dataset.tracker || '',
-      comment: pendingCueEl.dataset.comment || ''
+      name: selectedCueEl.dataset.name || '',
+      light: selectedCueEl.dataset.light || '',
+      video: selectedCueEl.dataset.video || '',
+      audio: selectedCueEl.dataset.audio || '',
+      tracker: selectedCueEl.dataset.tracker || '',
+      comment: selectedCueEl.dataset.comment || ''
     };
     // Placeholder until OSC/MIDI is implemented
     console.log('[CUE GO]', payload);
@@ -1894,8 +1894,8 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          cueId: pendingCueEl?.dataset?.cueId || '',
-          name: pendingCueEl?.dataset?.name || '',
+          cueId: selectedCueEl?.dataset?.cueId || '',
+          name: selectedCueEl?.dataset?.name || '',
           light: payload.light,
           video: payload.video,
           audio: payload.audio,
@@ -1908,12 +1908,12 @@
       // ignore
     }
 
-    lastTriggeredCueId = pendingCueEl?.dataset?.cueId || '';
-    refreshEditorLastPanelFromCue(pendingCueEl);
+    lastTriggeredCueId = selectedCueEl?.dataset?.cueId || '';
+    refreshEditorLastPanelFromCue(selectedCueEl);
     refreshCueToc();
 
     const cues = getCueLabels();
-    const idx = cues.indexOf(pendingCueEl);
+    const idx = cues.indexOf(selectedCueEl);
     if (idx >= 0 && idx + 1 < cues.length) setPendingCue(cues[idx + 1]);
 
     window.setTimeout(() => {
@@ -1942,14 +1942,16 @@
         setPendingCue(cue);
         setStatus('Cue selected (Del to delete)');
       } else {
-        clearSelectedCue();
-
         const target = e.target?.nodeType === 1 ? e.target : e.target?.parentElement;
         const el = target?.closest?.('*');
+        // If clicking inside editor UI (controls, playbar), do NOT clear selected cue
         if (!el || isInEditorUi(el)) {
           clearSelectedDomEl();
           return;
         }
+        // Clicking outside editor UI: clear selected cue and potentially select a DOM element
+        clearSelectedCue();
+
         const tag = String(el.tagName || '').toUpperCase();
         if (!tag || tag === 'HTML' || tag === 'HEAD' || tag === 'BODY') {
           clearSelectedDomEl();

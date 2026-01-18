@@ -622,7 +622,8 @@
 
     const ds = /** @type {any} */ (cue.dataset || {});
     const name = cueName(cue);
-    if (nameEl) nameEl.textContent = `${name} (${pendingIndex + 1}/${cues.length})`;
+    // Show only the cue name (no index/total)
+    if (nameEl) nameEl.textContent = name;
 
     if (metaEl) {
       const parts = [];

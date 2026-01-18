@@ -178,6 +178,44 @@ app.get('/list.json', async (req, res) => {
   }
 });
 
+// Inline updates from /list: set data-* attribute on matching .cue-label in the source HTML
+app.post('/list/update', async (req, res) => {
+  try {
+    const cueId = String(req.body?.cueId || '').trim();
+    const index = Number.isFinite(req.body?.index) ? Number(req.body.index) : -1;
+    const field = String(req.body?.field || '').toLowerCase();
+    const value = String(req.body?.value || '').trim();
+
+    const allowed = ['light', 'video', 'audio', 'tracker', 'comment'];
+    if (!allowed.includes(field)) return res.status(400).json({ ok: false, error: 'Invalid field' });
+
+    const html = await fs.readFile(TARGET_FILE, 'utf8');
+    const dom = new JSDOM(html);
+    const { document } = dom.window;
+
+    const els = Array.from(document.querySelectorAll('.cue-label')).filter((el) => !el.classList.contains('cue-label--template'));
+    let el = null;
+    if (cueId) {
+      el = els.find((n) => String(n.getAttribute('data-cue-id') || '').trim() === cueId) || null;
+    }
+    if (!el && index >= 0 && index < els.length) el = els[index];
+    if (!el) return res.status(404).json({ ok: false, error: 'Cue not found' });
+
+    const attr = 'data-' + field;
+    if (value) el.setAttribute(attr, value); else el.removeAttribute(attr);
+
+    const updatedHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    await createBackup(TARGET_FILE);
+    await fs.writeFile(TARGET_FILE, updatedHtml, 'utf8');
+    scheduleFileUpdatedBroadcast('listUpdate');
+    // Live-sync to connected clients (including other /list pages)
+    wsBroadcast({ type: 'listUpdate', cueId, index, field, value, ts: Date.now() });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/print', async (req, res) => {
   try {
     const html = await fs.readFile(TARGET_FILE, 'utf8');
@@ -526,9 +564,12 @@ function renderCueRow(cue, catKey) {
   ].join(' | '));
 
   return `
-    <li class="cue" data-search="${dataSearch}">
+    <li class="cue" data-search="${dataSearch}" data-cue-id="${cueId}" data-index="${index}" data-field="${escapeHtml(key)}">
       <div class="cue-link" aria-label="cue">
-        <span class="cue-title">${name || '(cue)'}</span>
+        <span class="cue-title-wrap">
+          <span class="cue-title">${name || '(cue)'}</span>
+          ${comment ? `<span class="cue-comment-inline">${comment}</span>` : ''}
+        </span>
         <span class="cue-rhs">
           <span class="cue-badges">${badges}</span>
           <span class="cue-value" title="${escapeHtml(key)}">${prominent || ''}</span>
@@ -536,7 +577,6 @@ function renderCueRow(cue, catKey) {
       </div>
       <div class="cue-sub">
         <span class="cue-meta">${meta}</span>
-        ${comment ? `<div class="cue-comment">${comment}</div>` : ''}
       </div>
     </li>
   `;
@@ -594,10 +634,13 @@ function renderCueListHtml(payload) {
       .cue-list{margin:0;padding:0 0 6px 0}
       .cue{list-style:none;padding:10px 14px;border-top:1px solid var(--border)}
       .cue-link{display:grid;grid-template-columns:1fr minmax(140px, auto) var(--value-col-w);gap:10px;align-items:flex-start}
-      .cue-title{font-weight:600;font-size:17px;line-height:1.35}
+      .cue-title-wrap{display:flex;gap:8px;align-items:center;min-width:0}
+      .cue-title{font-weight:600;font-size:17px;line-height:1.35;white-space:nowrap}
+      .cue-comment-inline{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
       .cue-rhs{display:contents}
       .cue-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-self:start}
       .cue-value{justify-self:end;width:var(--value-col-w);font-weight:700;font-size:22px;line-height:1;color:var(--text);opacity:.9;text-align:right;font-variant-numeric:tabular-nums}
+      .cue-value[contenteditable="true"]{outline:none;border-bottom:1px dotted var(--border)}
       .cue.is-selected{background:rgba(96,165,250,.08)}
       .cue.is-selected .cue-title{color:#e0f2fe}
       .badge{font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:var(--text);background:rgba(255,255,255,.03);font-variant-numeric:tabular-nums}
@@ -701,6 +744,90 @@ function renderCueListHtml(payload) {
           if (e.key === 'ArrowDown'){ e.preventDefault(); setSelectedByIndex(selectedIndex + 1); }
           else if (e.key === 'ArrowUp'){ e.preventDefault(); setSelectedByIndex(selectedIndex - 1); }
         });
+      })();
+
+      // Inline editing for cue values
+      (function(){
+        function saveValue(el){
+          var li = el.closest('.cue');
+          if (!li) return;
+          var value = String(el.innerText || '').trim();
+          var cueId = String(li.getAttribute('data-cue-id') || '');
+          var indexStr = String(li.getAttribute('data-index') || '-1');
+          var index = Number(indexStr);
+          var field = String(li.getAttribute('data-field') || '').toLowerCase();
+
+          fetch('/list/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cueId: cueId, index: index, field: field, value: value })
+          }).then(function(r){ return r.json(); }).then(function(resp){
+            if (!resp || !resp.ok) { el.style.borderBottomColor = 'rgba(244,114,182,.6)'; return; }
+            el.style.borderBottomColor = 'rgba(96,165,250,.5)';
+            // Update badge content for the edited field
+            var map = { light: '.badge--l', video: '.badge--v', audio: '.badge--a', tracker: '.badge--t', comment: '.badge--c' };
+            var sel = map[field] || '';
+            if (sel) {
+              var b = li.querySelector(sel);
+              if (b) {
+                if (value) {
+                  var prefix = field === 'light' ? 'L:' : field === 'video' ? 'V:' : field === 'audio' ? 'A:' : '';
+                  b.textContent = prefix ? (prefix + value) : (field === 'tracker' ? 'T' : field === 'comment' ? 'C' : value);
+                  b.style.display = '';
+                } else {
+                  b.style.display = 'none';
+                }
+              }
+            }
+          }).catch(function(){ el.style.borderBottomColor = 'rgba(244,114,182,.6)'; });
+        }
+        document.querySelectorAll('.cue-value').forEach(function(el){
+          el.setAttribute('contenteditable', 'true');
+          el.addEventListener('keydown', function(e){
+            if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+            if (e.key === 'Escape') { e.preventDefault(); document.execCommand && document.execCommand('undo'); el.blur(); }
+          });
+          el.addEventListener('blur', function(){ saveValue(el); });
+        });
+      })();
+
+      // Live-sync via WebSocket: apply listUpdate changes from other clients
+      (function(){
+        try {
+          var proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+          var ws = new WebSocket(proto + '://' + location.host + '/ws');
+          ws.addEventListener('message', function(ev){
+            var msg = null; try { msg = JSON.parse(String(ev.data || '')); } catch {}
+            if (!msg || msg.type !== 'listUpdate') return;
+            var cueId = String(msg.cueId || '');
+            var index = Number.isFinite(msg.index) ? Number(msg.index) : -1;
+            var field = String(msg.field || '').toLowerCase();
+            var value = String(msg.value || '').trim();
+
+            var li = null;
+            if (cueId) li = document.querySelector('.cue[data-cue-id="' + cueId.replace(/"/g, '\\"') + '"]');
+            if (!li && index >= 0) li = Array.from(document.querySelectorAll('.cue')).find(function(n){ return Number(n.getAttribute('data-index') || '-1') === index; });
+            if (!li) return;
+
+            var valEl = li.querySelector('.cue-value');
+            if (valEl) { valEl.textContent = value; valEl.style.borderBottomColor = 'rgba(96,165,250,.5)'; }
+
+            var map = { light: '.badge--l', video: '.badge--v', audio: '.badge--a', tracker: '.badge--t', comment: '.badge--c' };
+            var sel = map[field] || '';
+            if (sel) {
+              var b = li.querySelector(sel);
+              if (b) {
+                if (value) {
+                  var prefix = field === 'light' ? 'L:' : field === 'video' ? 'V:' : field === 'audio' ? 'A:' : '';
+                  b.textContent = prefix ? (prefix + value) : (field === 'tracker' ? 'T' : field === 'comment' ? 'C' : value);
+                  b.style.display = '';
+                } else {
+                  b.style.display = 'none';
+                }
+              }
+            }
+          });
+        } catch {}
       })();
     </script>
   </body>

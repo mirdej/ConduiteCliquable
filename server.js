@@ -483,7 +483,7 @@ function cueHref(cue) {
   return `/play${q ? `?${q}` : ''}`;
 }
 
-function renderCueRow(cue) {
+function renderCueRow(cue, catKey) {
   const name = escapeHtml(String(cue?.name || '').trim());
   const cueId = escapeHtml(String(cue?.cueId || '').trim());
   const index = Number.isFinite(cue?.index) ? Number(cue.index) : -1;
@@ -502,9 +502,17 @@ function renderCueRow(cue) {
     comment ? `<span class="badge badge--c" title="Comment">C</span>` : ''
   ].filter(Boolean).join('');
 
+  // Prominent value on the right, based on category key
+  let prominent = '';
+  const key = String(catKey || '').toLowerCase();
+  if (key === 'light') prominent = light;
+  else if (key === 'video') prominent = video;
+  else if (key === 'audio') prominent = audio;
+  else if (key === 'tracker') prominent = tracker;
+  else if (key === 'comment') prominent = comment;
+
   const meta = [
-    cueId ? `<span class="meta">id: <code>${cueId}</code></span>` : '',
-    index >= 0 ? `<span class="meta">#${index + 1}</span>` : ''
+    // Per request, do NOT show UUID, and hide cue index number
   ].filter(Boolean).join('');
 
   const dataSearch = escapeHtml([
@@ -519,10 +527,13 @@ function renderCueRow(cue) {
 
   return `
     <li class="cue" data-search="${dataSearch}">
-      <a class="cue-link" href="${href}">
+      <div class="cue-link" aria-label="cue">
         <span class="cue-title">${name || '(cue)'}</span>
-        <span class="cue-badges">${badges}</span>
-      </a>
+        <span class="cue-rhs">
+          <span class="cue-badges">${badges}</span>
+          <span class="cue-value" title="${escapeHtml(key)}">${prominent || ''}</span>
+        </span>
+      </div>
       <div class="cue-sub">
         <span class="cue-meta">${meta}</span>
         ${comment ? `<div class="cue-comment">${comment}</div>` : ''}
@@ -540,7 +551,7 @@ function renderCueListHtml(payload) {
     const cat = categories[key] || { count: 0, cues: [] };
     const count = Number.isFinite(cat.count) ? Number(cat.count) : 0;
     const cues = Array.isArray(cat.cues) ? cat.cues : [];
-    const items = cues.map(renderCueRow).join('');
+    const items = cues.map((c) => renderCueRow(c, key)).join('');
     const open = count ? 'open' : '';
     return `
       <details class="cat" ${open}>
@@ -560,7 +571,7 @@ function renderCueListHtml(payload) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cue List</title>
     <style>
-      :root{color-scheme:dark;--bg:#0b0f16;--panel:#111827;--panel2:#0f172a;--muted:#9ca3af;--text:#e5e7eb;--border:rgba(255,255,255,.08);--accent:#60a5fa;--accent2:#34d399}
+      :root{color-scheme:dark;--bg:#0b0f16;--panel:#111827;--panel2:#0f172a;--muted:#9ca3af;--text:#e5e7eb;--border:rgba(255,255,255,.08);--accent:#60a5fa;--accent2:#34d399;--value-col-w:100px}
       *{box-sizing:border-box}
       body{margin:0;padding:20px;font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,var(--bg),#070a10);color:var(--text)}
       a{color:inherit}
@@ -582,9 +593,13 @@ function renderCueListHtml(payload) {
       .cat-count{font-variant-numeric:tabular-nums;color:var(--muted)}
       .cue-list{margin:0;padding:0 0 6px 0}
       .cue{list-style:none;padding:10px 14px;border-top:1px solid var(--border)}
-      .cue-link{display:flex;gap:10px;align-items:flex-start;justify-content:space-between;text-decoration:none}
-      .cue-title{font-weight:600}
-      .cue-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+      .cue-link{display:grid;grid-template-columns:1fr minmax(140px, auto) var(--value-col-w);gap:10px;align-items:flex-start}
+      .cue-title{font-weight:600;font-size:17px;line-height:1.35}
+      .cue-rhs{display:contents}
+      .cue-badges{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-self:start}
+      .cue-value{justify-self:end;width:var(--value-col-w);font-weight:700;font-size:22px;line-height:1;color:var(--text);opacity:.9;text-align:right;font-variant-numeric:tabular-nums}
+      .cue.is-selected{background:rgba(96,165,250,.08)}
+      .cue.is-selected .cue-title{color:#e0f2fe}
       .badge{font-size:12px;padding:3px 8px;border-radius:999px;border:1px solid var(--border);color:var(--text);background:rgba(255,255,255,.03);font-variant-numeric:tabular-nums}
       .badge--l{border-color:rgba(96,165,250,.35)}
       .badge--v{border-color:rgba(52,211,153,.35)}
@@ -631,7 +646,7 @@ function renderCueListHtml(payload) {
       </div>
 
       <div class="footer">
-        Tip: click a cue to open Play mode with that cue selected.
+        Tip: use /play to control cues; this list is non-interactive.
       </div>
     </div>
 
@@ -654,6 +669,38 @@ function renderCueListHtml(payload) {
         }
         if (q) q.addEventListener('input', apply);
         if (clear) clear.addEventListener('click', function(e){ e.preventDefault(); if(q) q.value=''; apply(); q && q.focus(); });
+      })();
+
+      // Selection and arrow-key navigation
+      (function(){
+        var selectedIndex = -1;
+        function visibleCues(){ return Array.from(document.querySelectorAll('.cue')).filter(function(el){ return !el.classList.contains('hidden'); }); }
+        function setSelectedByIndex(idx){
+          var items = visibleCues();
+          if (!items.length){ selectedIndex = -1; return; }
+          if (idx < 0) idx = 0;
+          if (idx >= items.length) idx = items.length - 1;
+          items.forEach(function(el){ el.classList.remove('is-selected'); });
+          var el = items[idx];
+          el.classList.add('is-selected');
+          selectedIndex = idx;
+          try { el.scrollIntoView({ block: 'center' }); } catch {}
+        }
+        document.querySelectorAll('.cue').forEach(function(el){
+          el.addEventListener('click', function(){
+            if (el.classList.contains('hidden')) return;
+            var items = visibleCues();
+            var idx = items.indexOf(el);
+            setSelectedByIndex(idx >= 0 ? idx : 0);
+          });
+        });
+        document.addEventListener('keydown', function(e){
+          var tgt = e.target || {};
+          var tag = String(tgt.tagName || '').toLowerCase();
+          if (tag === 'input' || tag === 'textarea' || tgt.isContentEditable) return;
+          if (e.key === 'ArrowDown'){ e.preventDefault(); setSelectedByIndex(selectedIndex + 1); }
+          else if (e.key === 'ArrowUp'){ e.preventDefault(); setSelectedByIndex(selectedIndex - 1); }
+        });
       })();
     </script>
   </body>

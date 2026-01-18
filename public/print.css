@@ -1,0 +1,113 @@
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #444444;
+  --border: #bdbdbd;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  line-height: 1.22;
+  padding: 10px 12px 10px 1.2cm;
+  font-size: 9pt;
+}
+
+/* Make the raw script compact and readable */
+body p {
+  margin: 0 0 4px;
+  font-size: 9pt;
+}
+
+body strong {
+  font-weight: 750;
+}
+
+/* Cue pills (inline, embedded in the original text) */
+.cue-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  border-radius: 999px;
+  font-size: 10.5pt;
+  font-weight: 800;
+  line-height: 1.12;
+  border: 1px solid #8f8f8f;
+  background: #fff4b8;
+  color: #000000;
+  white-space: normal;
+}
+
+/* Include cue comments inside the pill */
+.cue-label[data-comment]:not([data-comment=""])::after {
+  content: " — " attr(data-comment);
+  font-weight: 650;
+  font-size: 9pt;
+  opacity: 0.9;
+}
+
+.cue-label:focus,
+.cue-label:active {
+  outline: none;
+}
+
+/* Section separators: keep visible but simple */
+.cue-separator {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 10.5pt;
+  font-weight: 700;
+  color: #000;
+  background: #f6f6f6;
+}
+
+/* If play/editor UI ever gets injected, hide it for print view */
+.play-controls,
+.play-toc,
+.play-toc-tab,
+.play-pending-panel,
+.play-last-panel,
+.editor-controls,
+.editor-playbar,
+.editor-playbar-spacer,
+.editor-overlay,
+.editor-comment-bubble,
+.editor-toc {
+  display: none !important;
+}
+
+/* If play.js ever created badges, keep the page clean */
+.play-comment-badge {
+  display: none !important;
+}
+
+@media print {
+  body {
+    padding: 0;
+  }
+
+  @page {
+    /* Keep a ~1.2cm left margin, reduce other margins to save pages */
+    margin: 8mm 8mm 8mm 12mm;
+  }
+
+  /* Reduce risk of pill backgrounds being forced on printers */
+  .cue-label,
+  .cue-separator {
+    background: #eee !important;
+    color: #000 !important;
+    border-color: #888 !important;
+  }
+}

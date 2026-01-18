@@ -18,6 +18,111 @@
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
+/* Top "Last GO" strip for Edit mode */
+.play-last-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 38px;
+  z-index: 999997;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: #0a0a0c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  color: #ddd;
+}
+
+.play-last-panel.is-empty { opacity: 0.85; }
+.play-last-panel.is-clickable { cursor: pointer; }
+.play-last-panel.is-clickable:hover { background: #121216; border-bottom-color: rgba(255,255,255,0.16); }
+
+.play-last-label {
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.play-last-name {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.84);
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.play-last-meta {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Bottom Pending strip for Edit mode */
+.play-pending-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--editor-controls-height, 84px);
+  z-index: 999998;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: #0a0a0c;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: #ddd;
+  transform: translateY(0);
+  transition: transform 160ms ease;
+}
+.play-pending-panel.is-empty { opacity: 0.85; }
+.play-pending-panel.is-clickable { cursor: pointer; }
+.play-pending-panel.is-clickable:hover { background: #121216; border-top-color: rgba(255,255,255,0.16); border-bottom-color: rgba(255,255,255,0.16); }
+
+.play-pending-label {
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(185, 183, 183, 0.62);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.play-pending-name {
+  font-weight: 900;
+  color: rgba(237, 191, 222, 0.84);
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.play-pending-meta {
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Jump highlight when scrolling to a cue */
+.cue-label.play-jump {
+  outline: 3px solid rgba(33, 150, 243, 0.85);
+  outline-offset: 2px;
+}
+
 .editor-controls-left {
   display: flex;
   flex-wrap: wrap;
@@ -392,19 +497,31 @@
   color: #fff;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   display: none;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
   min-height: 64px;
-  padding-right: 240px;
 }
 .editor-playbar.is-visible {
+  display: block;
+}
+.editor-playbar .playbar-top {
   display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .editor-playbar .playbar-title {
   font-weight: 600;
   margin-right: 8px;
+}
+.editor-playbar .playbar-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.editor-playbar .playbar-fields {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
 }
 .editor-playbar label {
   display: inline-flex;
@@ -437,15 +554,6 @@
 
 .editor-playbar input.playbar-comment {
   min-width: 320px;
-}
-.editor-playbar .playbar-actions {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
 }
 .editor-playbar button {
   appearance: none;

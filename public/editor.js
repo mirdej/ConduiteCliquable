@@ -8,9 +8,9 @@
     wsPath: '/ws'
   };
 
-  // Default to Play mode on load.
-  let editMode = false;
-  let playMode = true;
+  // Default to Edit mode on load (no client updates on cue clicks).
+  let editMode = true;
+  let playMode = false;
   let isDark = true;
 
   // Keyboard shortcut state
@@ -37,6 +37,11 @@
   let tocListEl = null;
   let tocVisible = false;
   let lastTriggeredCueId = '';
+  let lastTriggeredCueIndex = -1;
+  /** @type {HTMLElement | null} */
+  let lastPanelEl = null;
+  /** @type {HTMLElement | null} */
+  let pendingPanelEl = null;
   /** @type {Record<string, boolean>} */
   let collapsedSections = {};
 
@@ -88,18 +93,22 @@
   const playbar = document.createElement('div');
   playbar.className = 'editor-playbar';
   playbar.innerHTML = `
-    <span class="playbar-title">Pending Cue:</span>
-    <span class="playbar-pending-label">(none)</span>
-    <label>Light <input class="playbar-light" type="text" /></label>
-    <label>Video <input class="playbar-video" type="text" /></label>
-    <label>Audio <input class="playbar-audio" type="text" /></label>
-    <label>Tracker <input class="playbar-tracker" type="text" /></label>
-    <label>Comment <input class="playbar-comment" type="text" /></label>
-    <span class="playbar-actions">
-      <button data-action="cue-prev">Prev</button>
-      <button data-action="cue-next">Next</button>
-      <button class="go" data-action="cue-go">GO</button>
-    </span>
+    <div class="playbar-top">
+      <span class="playbar-title">Pending Cue:</span>
+      <span class="playbar-pending-label">(none)</span>
+      <span class="playbar-actions">
+        <button data-action="cue-prev">Prev</button>
+        <button data-action="cue-next">Next</button>
+        <button class="go" data-action="cue-go">GO</button>
+      </span>
+    </div>
+    <div class="playbar-fields">
+      <label>Light <input class="playbar-light" type="text" /></label>
+      <label>Video <input class="playbar-video" type="text" /></label>
+      <label>Audio <input class="playbar-audio" type="text" /></label>
+      <label>Tracker <input class="playbar-tracker" type="text" /></label>
+      <label>Comment <input class="playbar-comment" type="text" /></label>
+    </div>
   `;
 
   const playbarSpacer = document.createElement('div');
@@ -310,6 +319,31 @@
     document.body.prepend(playbarSpacer);
     document.body.appendChild(controls);
 
+    // Keep spacer height in sync with playbar height (multi-line responsive)
+    const setPlaybarSpacerHeight = () => {
+      try {
+        const h = Math.round(playbar.getBoundingClientRect().height);
+        playbarSpacer.style.height = `${Math.max(64, h)}px`;
+      } catch {}
+    };
+    setPlaybarSpacerHeight();
+    window.addEventListener('resize', setPlaybarSpacerHeight);
+
+    // Best-effort: measure controls to keep pending panel above it
+    try {
+      const h = Math.round(controls.getBoundingClientRect().height);
+      document.documentElement.style.setProperty('--editor-controls-height', `${h}px`);
+      window.addEventListener('resize', () => {
+        try {
+          const hh = Math.round(controls.getBoundingClientRect().height);
+          document.documentElement.style.setProperty('--editor-controls-height', `${hh}px`);
+        } catch {}
+      });
+    } catch {}
+
+    mountEditorLastPanel();
+    mountEditorPendingPanel();
+
     mountCueTocPanel();
 
     // GO button: trigger on release (after playbar is mounted)
@@ -394,6 +428,118 @@
 
     initWebSocket();
   });
+
+  function flashCueJump(el) {
+    if (!el) return;
+    el.classList.add('play-jump');
+    window.setTimeout(() => {
+      try { el.classList.remove('play-jump'); } catch {}
+    }, 650);
+  }
+
+  function scrollCueIntoView(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    } catch {
+      try { el.scrollIntoView(); } catch {}
+    }
+    flashCueJump(el);
+  }
+
+  function getCueById(cueId) {
+    const id = String(cueId || '').trim();
+    if (!id) return null;
+    const cues = getCueLabels();
+    return cues.find((c) => String(c?.dataset?.cueId || '') === id) || null;
+  }
+
+  function mountEditorPendingPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'play-pending-panel';
+    panel.innerHTML = `
+      <span class="play-pending-label">Pending</span>
+      <span class="play-pending-name" aria-label="Pending cue">(none)</span>
+      <span class="play-pending-meta" aria-label="Pending cue details"></span>
+    `;
+    document.body.appendChild(panel);
+    pendingPanelEl = panel;
+    panel.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (pendingCueEl) scrollCueIntoView(pendingCueEl);
+    });
+    refreshEditorPendingPanel();
+  }
+
+  function mountEditorLastPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'play-last-panel is-empty';
+    panel.innerHTML = `
+      <span class="play-last-label">Last GO</span>
+      <span class="play-last-name" aria-label="Last triggered cue">(none)</span>
+      <span class="play-last-meta" aria-label="Last triggered cue details"></span>
+    `;
+    document.body.appendChild(panel);
+    lastPanelEl = panel;
+    panel.addEventListener('click', (e) => {
+      e.preventDefault();
+      const el = getCueById(lastTriggeredCueId) || (lastTriggeredCueIndex >= 0 ? getCueLabels()[lastTriggeredCueIndex] : null);
+      if (el) scrollCueIntoView(el);
+    });
+  }
+
+  function refreshEditorPendingPanel() {
+    const nameEl = pendingPanelEl?.querySelector('.play-pending-name');
+    const metaEl = pendingPanelEl?.querySelector('.play-pending-meta');
+    if (!pendingPanelEl || !nameEl || !metaEl) return;
+
+    const cue = pendingCueEl;
+    if (!cue) {
+      pendingPanelEl.classList.add('is-empty');
+      pendingPanelEl.classList.remove('is-clickable');
+      nameEl.textContent = '(none)';
+      metaEl.textContent = '';
+      return;
+    }
+    pendingPanelEl.classList.remove('is-empty');
+    pendingPanelEl.classList.add('is-clickable');
+    const ds = /** @type {any} */ (cue.dataset || {});
+    const name = String(ds.name || cue.textContent || '').trim();
+    nameEl.textContent = name ? `${name}` : '(cue)';
+    const parts = [];
+    if (ds.light) parts.push(`L:${ds.light}`);
+    if (ds.video) parts.push(`V:${ds.video}`);
+    if (ds.audio) parts.push(`A:${ds.audio}`);
+    if (ds.tracker) parts.push(`T:${ds.tracker}`);
+    metaEl.textContent = parts.join('  ');
+  }
+
+  function refreshEditorLastPanelFromCue(cueEl) {
+    const nameEl = lastPanelEl?.querySelector('.play-last-name');
+    const metaEl = lastPanelEl?.querySelector('.play-last-meta');
+    if (!lastPanelEl || !nameEl || !metaEl) return;
+    if (!cueEl) {
+      lastPanelEl.classList.add('is-empty');
+      lastPanelEl.classList.remove('is-clickable');
+      nameEl.textContent = '(none)';
+      metaEl.textContent = '';
+      lastTriggeredCueIndex = -1;
+      return;
+    }
+    lastPanelEl.classList.remove('is-empty');
+    lastPanelEl.classList.add('is-clickable');
+    const ds = /** @type {any} */ (cueEl.dataset || {});
+    const name = String(ds.name || cueEl.textContent || '').trim();
+    nameEl.textContent = name || '(cue)';
+    const parts = [];
+    if (ds.light) parts.push(`L:${ds.light}`);
+    if (ds.video) parts.push(`V:${ds.video}`);
+    if (ds.audio) parts.push(`A:${ds.audio}`);
+    if (ds.tracker) parts.push(`T:${ds.tracker}`);
+    metaEl.textContent = parts.join('  ');
+    const cues = getCueLabels();
+    lastTriggeredCueIndex = cues.indexOf(cueEl);
+  }
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1702,6 +1848,7 @@
       pendingCueEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
     updateCommentBubble();
+    refreshEditorPendingPanel();
     refreshCueToc();
   }
 
@@ -1720,6 +1867,8 @@
 
   function triggerPendingCueAndAdvance() {
     if (!pendingCueEl) return;
+    // Do not trigger OSC in Edit mode
+    if (!playMode) return;
 
     const now = Date.now();
     if (goInFlight) return;
@@ -1739,7 +1888,7 @@
     console.log('[CUE GO]', payload);
     setStatus(`GO ${payload.name}`);
 
-    // Fire-and-forget OSC bridge call.
+    // Fire-and-forget OSC bridge call (Play mode only).
     try {
       fetch(cfg.oscGoUrl || '/osc/go', {
         method: 'POST',
@@ -1760,6 +1909,7 @@
     }
 
     lastTriggeredCueId = pendingCueEl?.dataset?.cueId || '';
+    refreshEditorLastPanelFromCue(pendingCueEl);
     refreshCueToc();
 
     const cues = getCueLabels();

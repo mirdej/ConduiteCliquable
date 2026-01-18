@@ -57,6 +57,9 @@ Browser clients subscribe via `GET /events`.
 
 - `GET /edit` editor UI
 - `GET /play` play UI
+- `GET /list` clickable HTML page: cues grouped by non-empty fields (light/video/audio/tracker/comment)
+- `GET /list.json` JSON payload for the same data (or `GET /list?format=json`)
+- `GET /print` printable HTML page with all cues in script order
 - `POST /save` apply text-node patches (creates a backup first)
 - `POST /saveHtml` write a full HTML document back (strips editor artifacts)
 - `POST /backup` create a timestamped backup

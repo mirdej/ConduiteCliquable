@@ -35,10 +35,20 @@ body {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  background: rgba(10, 10, 12, 0.55);
+  background: #0a0a0c;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(8px);
+  backdrop-filter: none;
   font-size: 12px;
+}
+
+.play-last-panel.is-clickable,
+.play-pending-panel.is-clickable {
+  cursor: pointer;
+}
+
+.play-last-panel.is-clickable:hover {
+  background: #121216;
+  border-bottom-color: rgba(255, 255, 255, 0.16);
 }
 
 .play-last-panel.is-empty {
@@ -114,6 +124,12 @@ hr {
   cursor: pointer;
 }
 
+/* Small visual confirmation when jumping to a cue from the panels */
+.cue-label.play-jump {
+  outline: 3px solid rgba(33, 150, 243, 0.85);
+  outline-offset: 2px;
+}
+
 .cue-label.has-comment {
   padding-right: 12px;
 }
@@ -125,7 +141,7 @@ hr {
   transform: translate(8px, -50%);
   max-width: min(70vw, 560px);
   height: 24px;
-  padding: 0 8px;
+  padding: 10px 18px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -150,6 +166,8 @@ hr {
   flex: 1 1 auto;
   min-width: 0;
   font-weight: 800;
+  font-size:2em;
+  margin:12px;
   letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -259,18 +277,24 @@ body.go-hold-active {
   right: 0;
   bottom: var(--play-controls-height, 84px);
   z-index: 999998;
-  height: 38px;
+  height: 44px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  background: rgba(10, 10, 12, 0.85);
+  background: #0a0a0c;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(8px);
-  font-size: 12px;
+  backdrop-filter: none;
+  font-size: 13px;
   transform: translateY(0);
   transition: transform 160ms ease;
+}
+
+.play-pending-panel.is-clickable:hover {
+  background: #121216;
+  border-top-color: rgba(255, 255, 255, 0.16);
+  border-bottom-color: rgba(255, 255, 255, 0.16);
 }
 
 .play-pending-panel.is-empty {
@@ -287,7 +311,7 @@ body.go-hold-active .play-pending-panel {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: rgba(185, 183, 183, 0.62);
-  font-size: 11px;
+  font-size: 12px;
   flex: 0 0 auto;
 }
 

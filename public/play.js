@@ -38,6 +38,10 @@
   /** @type {HTMLElement | null} */
   let lastTriggeredPanel = null;
 
+  // Last GO jump target (so the top panel can scroll to it)
+  let lastTriggeredCueId = '';
+  let lastTriggeredCueIndex = -1;
+
   /** @type {WebSocket | null} */
   let ws = null;
   let suppressWsSend = false;
@@ -71,12 +75,18 @@
     }, true);
 
     // Initial pending cue
-    const preset = document.querySelector('.cue-label.play-pending, .cue-label.cue-label--pending');
-    if (preset && preset.classList.contains('cue-label')) {
-      const idx = cues.indexOf(/** @type {HTMLElement} */ (preset));
-      setPending(Math.max(0, idx));
+    // Priority: URL params (?cueId=... or ?index=...) -> preset class -> first cue
+    const fromUrl = initialPendingFromUrl();
+    if (fromUrl >= 0) {
+      setPending(fromUrl);
     } else {
-      setPending(cues.length ? 0 : -1);
+      const preset = document.querySelector('.cue-label.play-pending, .cue-label.cue-label--pending');
+      if (preset && preset.classList.contains('cue-label')) {
+        const idx = cues.indexOf(/** @type {HTMLElement} */ (preset));
+        setPending(Math.max(0, idx));
+      } else {
+        setPending(cues.length ? 0 : -1);
+      }
     }
 
     // If loaded inside Max's jweb, listen for inlet messages.
@@ -87,6 +97,52 @@
     // Live sync (pending cue + file changes)
     initWebSocket();
   });
+
+  function flashCueJump(el) {
+    if (!el) return;
+    el.classList.add('play-jump');
+    window.setTimeout(() => {
+      try { el.classList.remove('play-jump'); } catch {}
+    }, 650);
+  }
+
+  function scrollCueIntoView(el) {
+    if (!el) return;
+    try {
+      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+    } catch {
+      try { el.scrollIntoView(); } catch {}
+    }
+    flashCueJump(el);
+  }
+
+  function cueElById(cueId) {
+    const id = String(cueId || '').trim();
+    if (!id) return null;
+    return cues.find((c) => String(c?.dataset?.cueId || '') === id) || null;
+  }
+
+  function initialPendingFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const cueId = String(params.get('cueId') || '').trim();
+      const indexStr = String(params.get('index') || '').trim();
+      const index = indexStr ? Number(indexStr) : NaN;
+
+      if (cueId) {
+        const idx = cues.findIndex((c) => String(c?.dataset?.cueId || '') === cueId);
+        if (idx >= 0) return idx;
+      }
+
+      if (Number.isFinite(index)) {
+        const i = Math.max(0, Math.min(cues.length - 1, Math.floor(index)));
+        if (cues[i]) return i;
+      }
+    } catch {
+      // ignore
+    }
+    return -1;
+  }
 
   function addCommentBadges() {
     for (const cue of cues) {
@@ -175,6 +231,11 @@
             return;
           }
         }
+
+        // Keep a best-effort ID for click-to-jump even if the element isn't found.
+        lastTriggeredCueId = cueId;
+        lastTriggeredCueIndex = -1;
+        if (lastTriggeredPanel) lastTriggeredPanel.classList.toggle('is-clickable', false);
 
         refreshLastTriggeredPanelFromData({
           name: String(cue?.name || ''),
@@ -458,6 +519,15 @@
     `;
     document.body.appendChild(panel);
     pendingPanel = panel;
+
+    panel.addEventListener('click', (e) => {
+      if (goHoldActive) return;
+      // Prevent accidental selection on double click
+      e.preventDefault();
+      const cue = (pendingIndex >= 0 && pendingIndex < cues.length) ? cues[pendingIndex] : null;
+      if (cue) scrollCueIntoView(cue);
+    });
+
     refreshPendingInfoPanel();
   }
 
@@ -468,27 +538,38 @@
       <span class="play-last-label">Last GO</span>
       <span class="play-last-name" aria-label="Last triggered cue">(none)</span>
       <span class="play-last-meta" aria-label="Last triggered cue details"></span>
-      <span class="play-last-time" aria-label="Last triggered cue time"></span>
     `;
     document.body.appendChild(panel);
     lastTriggeredPanel = panel;
+
+    panel.addEventListener('click', (e) => {
+      if (goHoldActive) return;
+      e.preventDefault();
+      const el = cueElById(lastTriggeredCueId) || (lastTriggeredCueIndex >= 0 ? cues[lastTriggeredCueIndex] : null);
+      if (el) scrollCueIntoView(el);
+    });
   }
 
   function refreshLastTriggeredPanel(cueEl) {
     if (!lastTriggeredPanel) return;
     const nameEl = lastTriggeredPanel.querySelector('.play-last-name');
     const metaEl = lastTriggeredPanel.querySelector('.play-last-meta');
-    const timeEl = lastTriggeredPanel.querySelector('.play-last-time');
 
     if (!cueEl) {
+      lastTriggeredCueId = '';
+      lastTriggeredCueIndex = -1;
       if (nameEl) nameEl.textContent = '(none)';
       if (metaEl) metaEl.textContent = '';
-      if (timeEl) timeEl.textContent = '';
       lastTriggeredPanel.classList.add('is-empty');
+      lastTriggeredPanel.classList.toggle('is-clickable', false);
       return;
     }
 
     lastTriggeredPanel.classList.remove('is-empty');
+    lastTriggeredPanel.classList.toggle('is-clickable', true);
+
+    lastTriggeredCueId = String(cueEl?.dataset?.cueId || '');
+    lastTriggeredCueIndex = cues.indexOf(cueEl);
 
     const ds = /** @type {any} */ (cueEl.dataset || {});
     const name = cueName(cueEl);
@@ -499,15 +580,6 @@
       audio: String(ds.audio || ''),
       tracker: String(ds.tracker || '')
     });
-
-    if (timeEl) {
-      try {
-        const t = new Date();
-        timeEl.textContent = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      } catch {
-        timeEl.textContent = '';
-      }
-    }
   }
 
   function refreshLastTriggeredPanelFromData(data) {
@@ -541,10 +613,12 @@
       if (nameEl) nameEl.textContent = '(none)';
       if (metaEl) metaEl.textContent = '';
       pendingPanel.classList.add('is-empty');
+      pendingPanel.classList.toggle('is-clickable', false);
       return;
     }
 
     pendingPanel.classList.remove('is-empty');
+    pendingPanel.classList.toggle('is-clickable', true);
 
     const ds = /** @type {any} */ (cue.dataset || {});
     const name = cueName(cue);

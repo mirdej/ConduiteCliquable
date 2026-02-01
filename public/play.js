@@ -830,7 +830,17 @@
   // Guard against duplicate GO triggers (OSC/SSE duplicates, key repeat, double taps).
   let goInFlight = false;
   let lastGoAtMs = 0;
-  const GO_COOLDOWN_MS = 250;
+  // Enforce a minimum 600ms between GO actions
+  const GO_COOLDOWN_MS = 600;
+
+  function showGoCooldownHint() {
+    if (!btnGo) return;
+    try { navigator?.vibrate?.([10, 30, 10]); } catch {}
+    btnGo.classList.add('is-cooldown');
+    window.setTimeout(() => {
+      try { btnGo.classList.remove('is-cooldown'); } catch {}
+    }, Math.min(600, Math.max(200, GO_COOLDOWN_MS)));
+  }
 
   async function triggerPendingCueAndAdvance() {
     if (!cues.length) return;
@@ -838,8 +848,8 @@
     if (pendingIndex < 0) return;
 
      const now = Date.now();
-     if (goInFlight) return;
-     if (GO_COOLDOWN_MS > 0 && now - lastGoAtMs < GO_COOLDOWN_MS) return;
+     if (goInFlight) { showGoCooldownHint(); return; }
+     if (GO_COOLDOWN_MS > 0 && now - lastGoAtMs < GO_COOLDOWN_MS) { showGoCooldownHint(); return; }
      goInFlight = true;
      lastGoAtMs = now;
 

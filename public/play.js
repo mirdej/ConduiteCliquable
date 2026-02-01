@@ -116,6 +116,34 @@
     flashCueJump(el);
   }
 
+  // Scroll so the cue appears around the lower third of the viewport,
+  // showing more text before the cue than after it.
+  function scrollCuePreferLowerThird(el) {
+    if (!el) return;
+    try {
+      const r = el.getBoundingClientRect();
+      const viewportH = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+      const docH = Math.max(
+        document.documentElement.scrollHeight,
+        document.body.scrollHeight,
+        document.documentElement.clientHeight,
+        document.body.clientHeight
+      );
+      const elTopAbs = r.top + (window.scrollY || window.pageYOffset || 0);
+      // Target the element to sit near the 2/3 mark of the viewport
+      let target = Math.round(elTopAbs - (viewportH * (2 / 3)));
+      // Keep within bounds
+      const maxScroll = Math.max(0, docH - viewportH);
+      if (!Number.isFinite(target)) target = 0;
+      target = Math.max(0, Math.min(maxScroll, target));
+      window.scrollTo({ top: target, behavior: 'smooth' });
+    } catch {
+      // Fallback: center if calculation fails
+      try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch {}
+    }
+    flashCueJump(el);
+  }
+
   function cueElById(cueId) {
     const id = String(cueId || '').trim();
     if (!id) return null;
@@ -525,7 +553,7 @@
       // Prevent accidental selection on double click
       e.preventDefault();
       const cue = (pendingIndex >= 0 && pendingIndex < cues.length) ? cues[pendingIndex] : null;
-      if (cue) scrollCueIntoView(cue);
+      if (cue) scrollCuePreferLowerThird(cue);
     });
 
     refreshPendingInfoPanel();
@@ -546,7 +574,7 @@
       if (goHoldActive) return;
       e.preventDefault();
       const el = cueElById(lastTriggeredCueId) || (lastTriggeredCueIndex >= 0 ? cues[lastTriggeredCueIndex] : null);
-      if (el) scrollCueIntoView(el);
+      if (el) scrollCuePreferLowerThird(el);
     });
   }
 
@@ -794,7 +822,7 @@
       const el = cues[pendingIndex];
       el.classList.add('play-pending');
       tocButtonsByIndex.get(pendingIndex)?.classList.add('is-active');
-      el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      scrollCuePreferLowerThird(el);
     }
 
     refreshCommentBadges();
